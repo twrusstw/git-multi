@@ -58,11 +58,11 @@ function find_branch {
     if git show-ref --verify --quiet "refs/heads/$keyword"; then
         printf '\e[32mBranch found in %s\e[0m\n' "$cur_dir"
     else
-        printf '\e[31mSame name branch not found in %s, ' "$cur_dir"
-        found_cnt=$(git branch --list "*$keyword*" | wc -l | tr -d ' ')
+        printf '\e[31m(%s)Same branch not found' "$cur_dir"
+        found_cnt=$(git branch -a -r --list "*$keyword*" | wc -l | tr -d ' ')
         if [ "$found_cnt" != 0 ]; then
-            printf 'similar branch\e[0m:\n'
-            git branch --list "*$keyword*" | sed 's/\*//g' | tr -d ' '
+            printf ', similar branch\e[0m:\n'
+            git branch  -a -r --list "*$keyword*" | sed 's/\*//g' | tr -d ' '
         else
             printf '\n'
         fi
@@ -78,7 +78,7 @@ function list_all_branches {
             cd "$cur_dir" || exit
             cmd=""
             if [ -z "$keyword" ]; then
-                cmd="git branch -all"
+                cmd="git branch --all"
             else
                 cmd="git branch -a --list '*$keyword*'"
             fi
@@ -130,7 +130,7 @@ function show_help {
     echo "  -pf   Force pull the specified branch in each repository."
     echo "  -s    Switch to the specified branch in each repository."
     echo "  -f    Find the specified branch in each repository."
-    echo "  -ls   Show the current branch in each repository."
+    echo "  -b    Show the current branch in each repository."
     echo "  -al   List all branches in each repository."
     echo "  -d    Specify the directory to use. This option must be followed by the directory path."
     echo "  -dc   Discard changes in each repository."
@@ -155,7 +155,7 @@ if [ "$1" = "-h" ]; then
 fi
 
 case "$1" in
-    -p|-pf|-s|-ls|-dc|-st)
+    -p|-pf|-s|-b|-dc|-st)
         is_specified_dir=false
         if [ "$2" = "-d" ]; then
             cur_dir="${3%/}"
@@ -173,7 +173,7 @@ case "$1" in
                     -p) git_pull "${branch_name:-}" ;;
                     -pf) git_pull_force "${branch_name:-}" ;;
                     -s) switch_branch "${branch_name}" ;;
-                    -ls) show_current_branch true ;;
+                    -b) show_current_branch true ;;
                     -dc) discard_changes ;;
                     -st) git status ;;
                 esac
@@ -213,7 +213,7 @@ for d in */ ; do
             -p) git_pull "$2" ;;
             -pf) git_pull_force "$2" ;;
             -s) switch_branch "$2" ;;
-            -ls)
+            -b)
                 show_current_branch "$first_loop"
                 first_loop=false
                 ;;
