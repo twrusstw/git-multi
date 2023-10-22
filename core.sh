@@ -1,4 +1,4 @@
-﻿#! /bin/bash
+﻿#!/bin/bash
 
 function git_pull {
     branch_name="$1"

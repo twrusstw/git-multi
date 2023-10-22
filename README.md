@@ -3,7 +3,12 @@
 Git Multi is a Bash script for executing Git commands in multiple Git subdirectories.
 
 ## Installation
-1. Download `install-git-multi.sh`
+1. Clone this project
+2. follow the command below:
+```bash
+ch /usr/local/bin/git-multi
+sudo chmod +x install-git-multi.sh
+```
 ## Usage
 1. Run `install-git-multi.sh` in the parent directory that contains multiple Git subdirectories.
 2. Use the following commands:

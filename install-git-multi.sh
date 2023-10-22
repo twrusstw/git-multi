@@ -1,36 +1,39 @@
 ﻿#!/bin/bash
 
-# Define the installation directory
 INSTALL_DIR="/usr/local/bin/git-multi"
 
-# Define the download URL for the gitmulti script
-GITMULTI_URL="https://gitlab.com/russliu/git-multi.git"
-
-mdkir -p $INSTALL_DIR
-echo "Downloading core.sh script..."
-curl -sSL $GITMULTI_URL -o $INSTALL_DIR/core.sh
-echo "Downloading auto-completion.sh script..."
-curl -sSL $GITMULTI_URL -o $INSTALL_DIR/auto-completion.sh
+# Define the installation directory
+mkdir -p $INSTALL_DIR || true
+sudo cp ./core.sh $INSTALL_DIR
+sudo cp ./auto-completion.sh $INSTALL_DIR
 
 # Make the script executable
 echo "Making gitmulti script executable..."
-chmod 777 $INSTALL_DIR/core.sh
-chmod 777 $INSTALL_DIR/auto-completion.sh
+sudo chmod 777 $INSTALL_DIR/core.sh || exit 1
+sudo chmod 777 $INSTALL_DIR/auto-completion.sh || exit 1
 
 # Print installation complete message
 echo "gitmulti installation complete!"
 
 
+echo "alias gitmulti="$INSTALL_DIR/core.sh"" >> ~/.zshrc
+
+# Prompt the user to install auto-completion
+echo "Do you want to install auto-completion for gitmulti? [Y/n]"
+read -r choice
+if [[ $choice =~ ^[Yy]$ ]]; then
 # Append the code to the end of the .bashrc or .zshrc file
+# {
+#   echo ""
+#   "# Add gitmulti completion"
+#   "source $INSTALL_DIR/auto-completion.sh"
+#  } >> ~/.bashrc
 {
   echo ""
-  "alias gitmulti="$INSTALL_DIR/core.sh""
   "# Add gitmulti completion"
-  "source /path/to/auto-completion.sh"
- } >> ~/.bashrc
-{
-  echo ""
-  "alias gitmulti="$INSTALL_DIR/core.sh""
-  "# Add gitmulti completion"
-  "source /path/to/auto-completion.sh"
+  "source $INSTALL_DIR/auto-completion.sh"
  } >> ~/.zshrc
+   echo "Auto-completion for gitmulti installed!"
+else
+  echo "Skip Auto-completion for gitmulti."
+fi
