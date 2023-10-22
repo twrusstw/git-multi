@@ -13,8 +13,6 @@ sudo cp ./auto-completion.sh "$INSTALL_DIR"/auto-completion.sh
 echo "Making gitmulti script executable..."
 sudo chmod 777 "$BIN_DIR"/gitmulti || exit 1
 sudo chmod 777 "$INSTALL_DIR"/auto-completion.sh || exit 1
-echo "alias gitmulti="bash $BIN_DIR/gitmulti"" >> ~/.bashrc
-echo "alias gitmulti="bash $BIN_DIR/gitmulti"" >> ~/.zshrc
 
 # Print installation complete message
 echo "gitmulti installation complete!"
