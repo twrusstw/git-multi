@@ -9,7 +9,7 @@ function list_all_branches {
             cd "$cur_dir" || exit
             cmd=""
             if [ -z "$keyword" ]; then
-                cmd="git branch -all"
+                cmd="git branch --all"
             else
                 cmd="git branch -a --list '*$keyword*'"
             fi
