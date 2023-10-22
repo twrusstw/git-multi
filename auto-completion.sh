@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+﻿#!/usr/bin/env bash
 
 # Define the _gitmulti_list_all_branches function
 function _gitmulti_list_all_branches() {
