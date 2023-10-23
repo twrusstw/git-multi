@@ -134,9 +134,13 @@ function show_current_branch {
     fi
     untracked=$(git status --porcelain | grep -c '^??' | tr -d ' ')
     unstaged=$(git status --porcelain | grep -c '^M' | tr -d ' ')
-    branch_status="(⇣$ahead ⇡$behind !$unstaged ?$untracked)"
     group_name=$(git remote get-url origin | sed 's/.*:\/\/[^/]*\/\([^/]*\)\/.*/\1/')
-    printf "\e[36m%-20s\e[0m %-30s %-20s %-5s\n"  "$group_name" "$cur_dir" "$current_branch" "$branch_status"
+    branch_status="(⇣$ahead ⇡$behind !$unstaged ?$untracked)"
+    if [ "$ahead" -gt 0 ] || [ "$behind" -gt 0 ] || [ "$unstaged" -gt 0 ] || [ "$untracked" -gt 0 ]; then
+        printf "\e[36m%-20s\e[0m %-30s %-20s \e[42;30m%-5s\e[0m\n"  "$group_name" "$cur_dir" "$current_branch" "$branch_status"
+    else
+        printf "\e[36m%-20s\e[0m %-30s %-20s %-5s\n"  "$group_name" "$cur_dir" "$current_branch" "$branch_status"
+    fi
 }
 
 function show_help {
@@ -239,6 +243,7 @@ for d in */ ; do
             -dc) discard_changes ;;
             -st)
                 if git status --porcelain | grep -q .; then
+                    printf '\e[36m%s\e[0m: Status of branch %s:\n' "$cur_dir" "$(git branch --show-current)"
                     git status
                 else
                     printf '\e[36m%s\e[0m: No changes to show.\n' "$cur_dir"
@@ -249,7 +254,7 @@ for d in */ ; do
                 ;;
         esac
         cd ..
-    else
-        echo "$cur_dir is not a Git repository, skipping..."
+    # else
+    #     echo "$cur_dir is not a Git repository, skipping..."
     fi
 done
