@@ -45,11 +45,29 @@ function switch_branch {
     current_branch=$(git branch --show-current)
     if [ "$current_branch" = "$1" ]; then
         printf '\e[36m%s\e[0m: Already on branch %s.\n' "$cur_dir" "$1"
-    elif git show-ref --verify --quiet "refs/heads/$1"; then
-        printf '\e[36m%s\e[0m: Switching to branch %s.\n' "$cur_dir" "$1"
-        git checkout "$1"
-    # else
-    #     printf '%s: Branch %s does not exist.\n' "$cur_dir" "$1"
+    else
+        if git diff-index --quiet HEAD --; then
+            if git show-ref --verify --quiet "refs/heads/$1"; then
+                printf '\e[36m%s\e[0m: Switching to branch %s.\n' "$cur_dir" "$1"
+                git checkout "$1"
+            # else
+            #     printf '%s: Branch %s does not exist.\n' "$cur_dir" "$1"
+            fi
+        else
+            printf '\e[36m%s\e[0m: Your local changes to the following files would be overwritten by checkout:\n' "$cur_dir"
+            git diff-index --name-only HEAD --
+            read -p "Do you want to discard all changes and switch to branch $1? (y/n) " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                git reset --hard HEAD
+                if git show-ref --verify --quiet "refs/heads/$1"; then
+                    printf '\e[36m%s\e[0m: Switching to branch %s.\n' "$cur_dir" "$1"
+                    git checkout "$1"
+                # else
+                #     printf '%s: Branch %s does not exist.\n' "$cur_dir" "$1"
+                fi
+            fi
+        fi
     fi
 }
 
