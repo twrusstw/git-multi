@@ -1,18 +1,31 @@
 #!/usr/bin/env bash
 
 function git_pull {
-    branch_name="$1"
-    if [ -z "$branch_name" ]; then
-        current_branch=$(git branch --show-current)
-        branch_name="$current_branch"
-    else
-        branch_name="$1"
-    fi
+    branch_name="${1:-$(git branch --show-current)}"
     printf '\e[36m%s\e[0m: Pulling to branch %s.\n' "$cur_dir" "$branch_name"
 
-    git checkout "$branch_name"
+    git fetch --all
+    if ! git checkout "$branch_name"; then
+        return
+    fi
+
     if git pull; then
-        printf '\e[36m%s\e[0m: Pulled changes from branch %s.\n' "$cur_dir"  "$branch_name"
+        printf '\e[36m%s\e[0m: Pulled changes from branch %s.\n' "$cur_dir" "$branch_name"
+    else
+        if git diff-index --quiet HEAD --; then
+            printf '\e[36m%s\e[0m: There are conflicts in the following files:\n' "$cur_dir"
+            git diff --name-only --diff-filter=U
+            read -p "Do you want to force update and discard all changes? (y/n) " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                git reset --hard origin/"$branch_name"
+                printf '\e[36m%s\e[0m: Pulled changes from branch %s.\n' "$cur_dir" "$branch_name"
+            fi
+        else
+            printf '\e[36m%s\e[0m: There are conflicts in the following files:\n' "$cur_dir"
+            git diff --name-only --diff-filter=U
+            printf '\e[36m%s\e[0m: Please resolve the conflicts and try again.\n' "$cur_dir"
+        fi
     fi
     printf '\n'
 }
@@ -28,7 +41,7 @@ function git_pull_force {
     printf '\e[36m%s\e[0m: Force Pulling to branch %s.\n' "$cur_dir" "$branch_name"
 
     git fetch --all
-    git checkout "$branch_name"
+    switch_branch_force_no_print "$branch_name"
     git reset --hard origin/"$branch_name"
 
     printf '\e[36m%s\e[0m: Force Pulled changes from branch %s.\n' "$cur_dir"  "$branch_name"
@@ -43,31 +56,55 @@ function switch_branch {
         exit 1
     fi
     current_branch=$(git branch --show-current)
-    if [ "$current_branch" = "$1" ]; then
-        printf '\e[36m%s\e[0m: Already on branch %s.\n' "$cur_dir" "$1"
-    else
-        if git diff-index --quiet HEAD --; then
-            if git show-ref --verify --quiet "refs/heads/$1"; then
-                printf '\e[36m%s\e[0m: Switching to branch %s.\n' "$cur_dir" "$1"
-                git checkout "$1"
-            # else
-            #     printf '%s: Branch %s does not exist.\n' "$cur_dir" "$1"
-            fi
-        else
-            printf '\e[36m%s\e[0m: Your local changes to the following files would be overwritten by checkout:\n' "$cur_dir"
-            git diff-index --name-only HEAD --
-            read -p "Do you want to discard all changes and switch to branch $1? (y/n) " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                git reset --hard HEAD
-                if git show-ref --verify --quiet "refs/heads/$1"; then
-                    printf '\e[36m%s\e[0m: Switching to branch %s.\n' "$cur_dir" "$1"
-                    git checkout "$1"
-                # else
-                #     printf '%s: Branch %s does not exist.\n' "$cur_dir" "$1"
-                fi
-            fi
+    if [ "$current_branch" = "$branch_name" ]; then
+        printf '\e[36m%s\e[0m: Already on branch %s.\n' "$cur_dir" "$branch_name"
+        return
+    fi
+    if ! git diff-index --quiet HEAD --; then
+        printf '\e[36m%s\e[0m: Your local changes to the following files would be overwritten by checkout:\n' "$cur_dir"
+        git diff-index --name-only HEAD --
+        read -p "Do you want to discard all changes and switch to branch $branch_name? (y/n) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            return
         fi
+        git reset --hard HEAD
+    fi
+    if git show-ref --verify --quiet "refs/heads/$branch_name"; then
+        printf '\e[36m%s\e[0m: Switching to branch %s.\n' "$cur_dir" "$branch_name"
+        git checkout "$branch_name"
+    fi
+}
+
+function switch_branch_force {
+    branch_name="$1"
+    if [ -z "$branch_name" ]; then
+        echo "Error: Missing arguments."
+        show_help
+        exit 1
+    fi
+    current_branch=$(git branch --show-current)
+    if [ "$current_branch" = "$branch_name" ]; then
+        printf '\e[36m%s\e[0m: Already on branch %s.\n' "$cur_dir" "$branch_name"
+        return
+    fi
+    if git show-ref --verify --quiet "refs/heads/$branch_name"; then
+        printf '\e[36m%s\e[0m: Switching to branch %s.\n' "$cur_dir" "$branch_name"
+        git checkout -f "$branch_name"
+    fi
+}
+
+function switch_branch_force_no_print {
+    branch_name="$1"
+    if [ -z "$branch_name" ]; then
+        return
+    fi
+    current_branch=$(git branch --show-current)
+    if [ "$current_branch" = "$branch_name" ]; then
+        return
+    fi
+    if git show-ref --verify --quiet "refs/heads/$branch_name"; then
+        git checkout -f "$branch_name"
     fi
 }
 
@@ -151,7 +188,8 @@ function show_help {
     echo "  -p    Pull the specified branch in each repository."
     echo "  -pf   Force pull the specified branch in each repository."
     echo "  -s    Switch to the specified branch in each repository."
-    echo "  -f    Find the specified branch in each repository."
+    echo "  -sf   Force switch to the specified branch in each repository."
+    echo "  -F    Find the specified branch in each repository."
     echo "  -b    Show the current branch in each repository."
     echo "  -al   List all branches in each repository."
     echo "  -d    Specify the directory to use. This option must be followed by the directory path."
@@ -162,7 +200,7 @@ function show_help {
     echo "Examples:"
     echo "  gitmulti -s feature-branch"
     echo "  gitmulti -p master"
-    echo "  gitmulti -f hotfix-branch"
+    echo "  gitmulti -F hotfix-branch"
 }
 
 if [ $# -eq 0 ]; then
@@ -177,7 +215,7 @@ if [ "$1" = "-h" ]; then
 fi
 
 case "$1" in
-    -p|-pf|-s|-b|-dc|-st)
+    -p|-pf|-s|-sf|-b|-dc|-st)
         is_specified_dir=false
         if [ "$2" = "-d" ]; then
             cur_dir="${3%/}"
@@ -195,6 +233,7 @@ case "$1" in
                     -p) git_pull "${branch_name:-}" ;;
                     -pf) git_pull_force "${branch_name:-}" ;;
                     -s) switch_branch "${branch_name}" ;;
+                    -sf) switch_branch_force "${branch_name}" ;;
                     -b) show_current_branch true ;;
                     -dc) discard_changes ;;
                     -st) git status ;;
@@ -208,7 +247,7 @@ case "$1" in
             fi
         fi
         ;;
-    -f)
+    -F)
         if [ $# -lt 2 ]; then
             echo "Error: Missing arguments."
             show_help
@@ -235,11 +274,12 @@ for d in */ ; do
             -p) git_pull "$2" ;;
             -pf) git_pull_force "$2" ;;
             -s) switch_branch "$2" ;;
+            -sf) switch_branch_force "$2" ;;
             -b)
                 show_current_branch "$first_loop"
                 first_loop=false
                 ;;
-            -f) find_branch "$2" ;;
+            -F) find_branch "$2" ;;
             -dc) discard_changes ;;
             -st)
                 if git status --porcelain | grep -q .; then
