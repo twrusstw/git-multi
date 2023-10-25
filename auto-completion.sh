@@ -45,13 +45,18 @@ function count_all_branches {
     echo "$count"
 }
 
+function list_all_git_repos() {
+    local repo_list=$(find . -maxdepth 2 -type d -name ".git" | sed 's/\.git$//' | sed 's/^\.\///')
+    echo "${repo_list}"
+}
+
 # Define the _gitmulti_list_all_branches function
 function _gitmulti_list_all_branches() {
     local cur prev opts
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="-p -fp -s"
+    opts="-p -pf -s -sf"
     if [[ ${cur} == -* ]] ; then
         COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
         return 0
@@ -60,6 +65,12 @@ function _gitmulti_list_all_branches() {
         return 0
     fi
     COMPREPLY=( $(cd "$(dirname "${cur}")" && list_all_branches "$(basename "${cur}")" | awk '{print $NF}') )
+    if [[ ${prev} == "-d" ]]; then
+        local repo_name="${cur}"
+        local repo_list=$(list_all_git_repos| grep "${repo_name}")
+        COMPREPLY=( $(compgen -W "${repo_list}" -- ${cur}) )
+        return 0
+    fi
     return 0
 }
 

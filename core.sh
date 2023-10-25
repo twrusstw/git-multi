@@ -10,21 +10,21 @@ function git_pull {
     fi
 
     if git pull; then
-        printf '\e[36m%s\e[0m: Pulled changes from branch %s.\n' "$cur_dir" "$branch_name"
+        printf '\e[36m%s\e[0m: Pulled changes from branch %s.\n' "$cur_dir"  "$branch_name"
     else
-        if git diff-index --quiet HEAD --; then
-            printf '\e[36m%s\e[0m: There are conflicts in the following files:\n' "$cur_dir"
-            git diff --name-only --diff-filter=U
-            read -p "Do you want to force update and discard all changes? (y/n) " -n 1 -r
+        printf '\e[36m%s\e[0m: Stashing local changes and pulling changes from branch %s.\n' "$cur_dir"  "$branch_name"
+        git stash
+        if git pull; then
+            printf '\e[36m%s\e[0m: Pulled changes from branch %s.\n' "$cur_dir"  "$branch_name"
+        else
+            read -p "Do you want to force pull and discard all changes? This action cannot be undone. (y/n) " -n 1 -r
             echo
             if [[ $REPLY =~ ^[Yy]$ ]]; then
                 git reset --hard origin/"$branch_name"
                 printf '\e[36m%s\e[0m: Pulled changes from branch %s.\n' "$cur_dir" "$branch_name"
+            else
+                printf '\e[36m%s\e[0m: Operation cancelled.\n' "$cur_dir"
             fi
-        else
-            printf '\e[36m%s\e[0m: There are conflicts in the following files:\n' "$cur_dir"
-            git diff --name-only --diff-filter=U
-            printf '\e[36m%s\e[0m: Please resolve the conflicts and try again.\n' "$cur_dir"
         fi
     fi
     printf '\n'
@@ -76,23 +76,6 @@ function switch_branch {
     fi
 }
 
-function switch_branch_force {
-    branch_name="$1"
-    if [ -z "$branch_name" ]; then
-        echo "Error: Missing arguments."
-        show_help
-        exit 1
-    fi
-    current_branch=$(git branch --show-current)
-    if [ "$current_branch" = "$branch_name" ]; then
-        printf '\e[36m%s\e[0m: Already on branch %s.\n' "$cur_dir" "$branch_name"
-        return
-    fi
-    if git show-ref --verify --quiet "refs/heads/$branch_name"; then
-        printf '\e[36m%s\e[0m: Switching to branch %s.\n' "$cur_dir" "$branch_name"
-        git checkout -f "$branch_name"
-    fi
-}
 
 function switch_branch_force_no_print {
     branch_name="$1"
@@ -105,6 +88,24 @@ function switch_branch_force_no_print {
     fi
     if git show-ref --verify --quiet "refs/heads/$branch_name"; then
         git checkout -f "$branch_name"
+    fi
+}
+
+function switch_branch_force {
+    branch_name="$1"
+    if [ -z "$branch_name" ]; then
+        echo "Error: Missing arguments."
+        show_help
+        exit 1
+    fi
+    current_branch=$(git branch --show-current)
+    if [ "$current_branch" = "$1" ]; then
+        printf '\e[36m%s\e[0m: Already on branch %s.\n' "$cur_dir" "$1"
+    else
+        if git show-ref --verify --quiet "refs/heads/$1"; then
+            printf '\e[36m%s\e[0m: Switching to branch %s.\n' "$cur_dir" "$1"
+            git checkout -f "$1"
+        fi
     fi
 }
 
@@ -170,13 +171,14 @@ function show_current_branch {
         printf "\e[1m%-20s %-30s %-20s %-5s\e[0m\\n"  "Group" "Repository" "Branch" "Status"
     fi
     untracked=$(git status --porcelain | grep -c '^??' | tr -d ' ')
-    unstaged=$(git status --porcelain | grep -c '^M' | tr -d ' ')
+    unstaged=$(git status --porcelain | grep -c '^(M|AM|D|AD|MM|UU)' | tr -d ' ')
+    staged=$(git status --porcelain | grep -c '^[MADRC]' | tr -d ' ')
     group_name=$(git remote get-url origin | sed 's/.*:\/\/[^/]*\/\([^/]*\)\/.*/\1/')
-    branch_status="(⇣$ahead ⇡$behind !$unstaged ?$untracked)"
-    if [ "$ahead" -gt 0 ] || [ "$behind" -gt 0 ] || [ "$unstaged" -gt 0 ] || [ "$untracked" -gt 0 ]; then
+    branch_status="(⇣$ahead ⇡$behind ?$untracked !$unstaged +$staged)"
+    if [ "$ahead" -gt 0 ] || [ "$behind" -gt 0 ] || [ "$unstaged" -gt 0 ] || [ "$untracked" -gt 0 ] || [ "$staged" -gt 0 ]; then
         printf "\e[36m%-20s\e[0m %-30s %-20s \e[42;30m%-5s\e[0m\n"  "$group_name" "$cur_dir" "$current_branch" "$branch_status"
     else
-        printf "\e[36m%-20s\e[0m %-30s %-20s %-5s\n"  "$group_name" "$cur_dir" "$current_branch" "$branch_status"
+        printf "\e[36m%-20s\e[0m \e[33m%-30s\e[0m %-20s %-5s\n" "$group_name" "$cur_dir" "$current_branch" "$branch_status"
     fi
 }
 
@@ -273,8 +275,8 @@ for d in */ ; do
         case "$1" in
             -p) git_pull "$2" ;;
             -pf) git_pull_force "$2" ;;
-            -s) switch_branch "$2" ;;
             -sf) switch_branch_force "$2" ;;
+            -s) switch_branch "$2" ;;
             -b)
                 show_current_branch "$first_loop"
                 first_loop=false
@@ -294,7 +296,5 @@ for d in */ ; do
                 ;;
         esac
         cd ..
-    # else
-    #     echo "$cur_dir is not a Git repository, skipping..."
     fi
 done
