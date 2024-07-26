@@ -74,6 +74,10 @@ function switch_branch {
         printf '\e[36m%s\e[0m: Switching to branch %s.\n' "$cur_dir" "$branch_name"
         git checkout "$branch_name"
     fi
+    if git show-ref --verify --quiet "refs/heads/$branch_name" || git ls-remote --exit-code --heads origin "$branch_name" >/dev/null; then
+        printf '\e[36m%s\e[0m: Switching to branch %s.\n' "$cur_dir" "$branch_name"
+        git checkout "$branch_name"
+    fi
 }
 
 
@@ -86,7 +90,7 @@ function switch_branch_force_no_print {
     if [ "$current_branch" = "$branch_name" ]; then
         return
     fi
-    if git show-ref --verify --quiet "refs/heads/$branch_name"; then
+    if git show-ref --verify --quiet "refs/heads/$branch_name" || git ls-remote --exit-code --heads origin "$branch_name" >/dev/null; then
         git checkout -f "$branch_name"
     fi
 }
@@ -99,12 +103,12 @@ function switch_branch_force {
         exit 1
     fi
     current_branch=$(git branch --show-current)
-    if [ "$current_branch" = "$1" ]; then
-        printf '\e[36m%s\e[0m: Already on branch %s.\n' "$cur_dir" "$1"
+    if [ "$current_branch" = "$branch_name" ]; then
+        printf '\e[36m%s\e[0m: Already on branch %s.\n' "$cur_dir" "$branch_name"
     else
-        if git show-ref --verify --quiet "refs/heads/$1"; then
-            printf '\e[36m%s\e[0m: Switching to branch %s.\n' "$cur_dir" "$1"
-            git checkout -f "$1"
+        if git show-ref --verify --quiet "refs/heads/$branch_name" || git ls-remote --exit-code --heads origin "$branch_name" >/dev/null; then
+            printf '\e[36m%s\e[0m: Switching to branch %s.\n' "$cur_dir" "$branch_name"
+            git checkout -f "$branch_name"
         fi
     fi
 }
@@ -170,15 +174,55 @@ function show_current_branch {
     if [ "$1" = true ]; then
         printf "\e[1m%-20s %-30s %-20s %-5s\e[0m\\n"  "Group" "Repository" "Branch" "Status"
     fi
-    untracked=$(git status --porcelain | grep -c '^??' | tr -d ' ')
-    unstaged=$(git status --porcelain | grep -c '^(M|AM|D|AD|MM|UU)' | tr -d ' ')
-    staged=$(git status --porcelain | grep -c '^[MADRC]' | tr -d ' ')
+    untracked=$(git status --porcelain | grep -Ec '^ ??')
+    unstaged=$(git status --porcelain | grep -c '^ [MD]')
+    staged=$(git diff --cached --name-only | wc -l|tr -d ' ')
     group_name=$(git remote get-url origin | sed 's/.*:\/\/[^/]*\/\([^/]*\)\/.*/\1/')
     branch_status="(⇣$ahead ⇡$behind ?$untracked !$unstaged +$staged)"
-    if [ "$ahead" -gt 0 ] || [ "$behind" -gt 0 ] || [ "$unstaged" -gt 0 ] || [ "$untracked" -gt 0 ] || [ "$staged" -gt 0 ]; then
+    if [ "$unstaged" -gt 0 ] || [ "$untracked" -gt 0 ] || [ "$staged" -gt 0 ]; then
         printf "\e[36m%-20s\e[0m %-30s %-20s \e[42;30m%-5s\e[0m\n"  "$group_name" "$cur_dir" "$current_branch" "$branch_status"
     else
         printf "\e[36m%-20s\e[0m \e[33m%-30s\e[0m %-20s %-5s\n" "$group_name" "$cur_dir" "$current_branch" "$branch_status"
+    fi
+}
+
+function create_branch_if_modified {
+    local branch_name="$1"
+    local skip_extensions="(.mod|.sum)$" # Define extensions to skip branch creation
+
+    # Check if branch name is provided
+    if [ -z "$branch_name" ]; then
+        echo "Error: Branch name is required."
+        return 1
+    fi
+
+    # Check for uncommitted changes using git status
+    if git status --porcelain | grep -q '^ [AMD]'; then
+        # Check if all changes are only for specified extensions
+        if ! git status --porcelain | grep '^ [AMD]' | grep -vqE "$skip_extensions"; then
+            echo "All changes are in files with extensions to skip (.mod, .sum). No new branch created."
+            return 0
+        fi
+
+        echo "Uncommitted changes detected. Creating a new branch: $branch_name"
+
+        # Check if the branch already exists
+        if git show-ref --verify --quiet "refs/heads/$branch_name"; then
+            echo "Error: Branch '$branch_name' already exists."
+            return 1
+        fi
+
+        # Create and switch to the new branch
+
+        if git checkout -b "$branch_name"
+        then
+            echo "Successfully created and switched to branch '$branch_name'."
+        else
+            echo "Failed to create branch '$branch_name'."
+            return 1
+        fi
+    else
+        echo "No uncommitted changes. No need to create a new branch."
     fi
 }
 
@@ -197,6 +241,7 @@ function show_help {
     echo "  -d    Specify the directory to use. This option must be followed by the directory path."
     echo "  -dc   Discard changes in each repository."
     echo "  -st   Show the status of each repository."
+    echo "  -nb   Create a new branch if there are uncommitted changes."
     echo "  -h    Show this help message."
     echo ""
     echo "Examples:"
@@ -217,7 +262,7 @@ if [ "$1" = "-h" ]; then
 fi
 
 case "$1" in
-    -p|-pf|-s|-sf|-b|-dc|-st)
+    -p|-pf|-s|-sf|-nb|-b|-dc|-st)
         is_specified_dir=false
         if [ "$2" = "-d" ]; then
             cur_dir="${3%/}"
@@ -277,6 +322,7 @@ for d in */ ; do
             -pf) git_pull_force "$2" ;;
             -sf) switch_branch_force "$2" ;;
             -s) switch_branch "$2" ;;
+            -nb) create_branch_if_modified "$2" ;;
             -b)
                 show_current_branch "$first_loop"
                 first_loop=false
