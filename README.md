@@ -9,7 +9,7 @@ Git Multi is a Bash script for executing Git commands in multiple Git subdirecto
 sudo chmod +x install-git-multi.sh
 ./install-git-multi.sh
 ```
-1. execcute `exec bash` or `exec zsh`. Or reopen terminal
+3. execute `exec bash` or `exec zsh`. Or reopen terminal
 
 ## Usage
 Use the following commands:
