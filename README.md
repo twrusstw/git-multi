@@ -1,36 +1,81 @@
-# Git Multi
+# git-multi
 
-Git Multi is a Bash script for executing Git commands in multiple Git subdirectories.
+A Go CLI utility that executes Git commands across multiple repositories at once. Run it from a parent directory and it operates on every immediate subdirectory that contains a `.git` folder.
 
 ## Installation
-1. Clone this project
-2. follow the command below:
+
 ```bash
-sudo chmod +x install-git-multi.sh
-./install-git-multi.sh
+git clone https://github.com/twrusstw/git-multi.git
+cd git-multi
+chmod +x install.sh
+./install.sh
+exec zsh  # or exec bash
 ```
-3. execute `exec bash` or `exec zsh`. Or reopen terminal
+
+The install script builds the binary, copies it to `/usr/local/bin/gitmulti`, and optionally sets up tab completion in your shell.
 
 ## Usage
-Use the following commands:
-```
-Usage: gitmulti [OPTION] [BRANCH] [-d DIRECTORY]
-Checkout, pull, switch, or discard changes in all Git repositories in the current directory and its subdirectories.
 
-Options:
-  -p    Pull the specified branch in each repository.
-  -pf   Force pull the specified branch in each repository.
-  -s    Switch to the specified branch in each repository.
-  -f    Find the specified branch in each repository.
-  -ls   Show the current branch in each repository.
-  -al   List all branches in each repository.
-  -d    Specify the directory to use. This option must be followed by the directory path.
-  -dc   Discard changes in each repository.
-  -st   Show the status of each repository.
-  -h    Show this help message.
-
-Examples:
-  gitmulti -s feature-branch
-  gitmulti -p master
-  gitmulti -f hotfix-branch
 ```
+gitmulti [OPTION] [BRANCH] [-d DIRECTORY]
+```
+
+| Option | Argument | Description |
+|--------|----------|-------------|
+| `-p` | `[branch]` | Pull branch (stash fallback, then prompts for hard reset) |
+| `-pf` | `[branch]` | Force pull — hard reset to origin |
+| `-s` | `<branch>` | Switch branch (prompts if uncommitted changes exist) |
+| `-sf` | `<branch>` | Force switch branch |
+| `-F` | `<keyword>` | Find branch by keyword across all repos |
+| `-b` | | Show current branch, ahead/behind counts, and dirty state |
+| `-al` | `[keyword]` | List all unique branches (optionally filtered by keyword) |
+| `-st` | | Show git status for repos with uncommitted changes |
+| `-dc` | | Discard all changes (`checkout . && clean -fd`) |
+| `-nb` | `<branch>` | Create new branch for repos with uncommitted changes |
+| `-d` | `<path>` | Target a single specific repository |
+| `-h` | | Show help |
+
+## Examples
+
+```bash
+# Switch all repos to develop
+gitmulti -s develop
+
+# Pull main in all repos
+gitmulti -p main
+
+# Show branch status across all repos
+gitmulti -b
+
+# List all branches matching a keyword
+gitmulti -al hotfix
+
+# Operate on a single repo
+gitmulti -p main -d my-service
+
+# Create a new branch in repos with changes (skips .mod/.sum only changes)
+gitmulti -nb feat/my-feature
+```
+
+## Tab Completion
+
+Tab completion is set up automatically during installation for both bash and zsh.
+
+```bash
+gitmulti -<TAB>        # list all flags
+gitmulti -s <TAB>      # list available branches
+gitmulti -d <TAB>      # list git repo directories
+```
+
+## Uninstall
+
+```bash
+chmod +x uninstall.sh
+./uninstall.sh
+```
+
+Removes the binary, the install directory, and the completion entry from `~/.zshrc` and `~/.bashrc`.
+
+## License
+
+MIT
