@@ -27,9 +27,15 @@ func BranchExistsLocal(dir, branch string) bool {
 	return gitutil.GitOK(dir, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
 }
 
-// BranchExistsRemote reports whether branch exists on origin.
+// BranchExistsRemote reports whether branch exists on origin via live network query.
 func BranchExistsRemote(dir, branch string) bool {
 	return gitutil.GitOK(dir, "ls-remote", "--exit-code", "--heads", "origin", branch)
+}
+
+// BranchExistsRemoteLocal reports whether a remote branch exists using locally cached
+// remote-tracking refs. Use only after git fetch has already been performed.
+func BranchExistsRemoteLocal(dir, branch string) bool {
+	return gitutil.GitOK(dir, "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+branch)
 }
 
 // FindGitRepos returns absolute paths to immediate subdirectories that are git repos.

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"gitmulti/internal/branch"
 	"gitmulti/internal/pull"
@@ -18,6 +19,9 @@ var allFlags = []string{"-p", "-pf", "-s", "-sf", "-F", "-b", "-al", "-dc", "-st
 
 // noArgFlags are flags that take no branch/value argument.
 var noArgFlags = map[string]bool{"-b": true, "-st": true, "-dc": true, "-h": true, "-al": true}
+
+// parallelOps lists ops that are safe to run concurrently (no per-repo interactive prompts).
+var parallelOps = map[string]bool{"-pf": true, "-sf": true, "-F": true, "-st": true, "-nb": true}
 
 func runComplete(prev, cur string) {
 	root, _ := os.Getwd()
@@ -134,6 +138,24 @@ func main() {
 
 	if op == "-dc" {
 		status.DiscardChangesMulti(repos)
+		return
+	}
+
+	if op == "-b" {
+		status.ShowCurrentAll(repos)
+		return
+	}
+
+	if parallelOps[op] {
+		var wg sync.WaitGroup
+		for _, r := range repos {
+			wg.Add(1)
+			go func(r string) {
+				defer wg.Done()
+				runOp(op, r, branchName, false)
+			}(r)
+		}
+		wg.Wait()
 		return
 	}
 

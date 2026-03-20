@@ -9,14 +9,18 @@ import (
 // defaultSkipFiles lists filenames (by basename) that are ignored when deciding whether to create a branch.
 var defaultSkipFiles = map[string]bool{
 	// Go
-	"go.mod": true, "go.sum": true,
+	"go.mod": true,
+	"go.sum": true,
 	// Node.js
-	"package-lock.json": true, "yarn.lock": true,
-	"pnpm-lock.yaml": true, "bun.lockb": true,
+	"package-lock.json": true,
+	"yarn.lock":         true,
+	"pnpm-lock.yaml":    true,
+	"bun.lockb":         true,
 	// Rust
 	"Cargo.lock": true,
 	// Python
-	"poetry.lock": true, "Pipfile.lock": true,
+	"poetry.lock":  true,
+	"Pipfile.lock": true,
 	// PHP
 	"composer.lock": true,
 }

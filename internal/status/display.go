@@ -3,23 +3,37 @@ package status
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"gitmulti/internal/gitutil"
 	"gitmulti/internal/repo"
 	"gitmulti/internal/ui"
 )
 
-func ShowCurrent(dir string, printHeader bool) {
-	label := repo.Label(dir)
+type repoStatus struct {
+	label      string
+	groupName  string
+	branchName string
+	pullCount  string
+	pushCount  string
+	untracked  int
+	unstaged   int
+	staged     int
+}
 
+func collectStatus(dir string) repoStatus {
+	label := repo.Label(dir)
 	branchName := repo.CurrentBranch(dir)
-	remoteBranch, err := gitutil.Git(dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+
 	var pullCount, pushCount string
+	remoteBranch, err := gitutil.Git(dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
 	if err == nil && remoteBranch != "" {
-		pull, _ := gitutil.Git(dir, "rev-list", "--count", "HEAD.."+remoteBranch)
-		push, _ := gitutil.Git(dir, "rev-list", "--count", remoteBranch+"..HEAD")
-		pullCount = pull
-		pushCount = push
+		counts, _ := gitutil.Git(dir, "rev-list", "--count", "--left-right", "HEAD..."+remoteBranch)
+		parts := strings.SplitN(counts, "\t", 2)
+		if len(parts) == 2 {
+			pushCount = parts[0]
+			pullCount = parts[1]
+		}
 	} else {
 		pullCount = "N/A"
 		pushCount = "N/A"
@@ -46,20 +60,52 @@ func ShowCurrent(dir string, printHeader bool) {
 	remoteURL, _ := gitutil.Git(dir, "remote", "get-url", "origin")
 	groupName := extractOwner(remoteURL)
 
-	status := fmt.Sprintf("(⇣%s ⇡%s ?%d !%d +%d)", pullCount, pushCount, untracked, unstaged, staged)
+	return repoStatus{
+		label:      label,
+		groupName:  groupName,
+		branchName: branchName,
+		pullCount:  pullCount,
+		pushCount:  pushCount,
+		untracked:  untracked,
+		unstaged:   unstaged,
+		staged:     staged,
+	}
+}
 
+func printStatus(s repoStatus, printHeader bool) {
+	status := fmt.Sprintf("(⇣%s ⇡%s ?%d !%d +%d)", s.pullCount, s.pushCount, s.untracked, s.unstaged, s.staged)
 	if printHeader {
 		fmt.Printf("\033[1m%-20s %-30s %-20s %-5s\033[0m\n", "Group", "Repository", "Branch", "Status")
 	}
-
-	dirty := untracked > 0 || unstaged > 0 || staged > 0
+	dirty := s.untracked > 0 || s.unstaged > 0 || s.staged > 0
 	if dirty {
 		fmt.Printf("%s %-30s %-20s \033[42;30m%s\033[0m\n",
-			ui.PadRight(ui.Cyan(groupName), 20), label, branchName, status)
+			ui.PadRight(ui.Cyan(s.groupName), 20), s.label, s.branchName, status)
 	} else {
 		fmt.Printf("%s \033[33m%-30s\033[0m %-20s %s\n",
-			ui.PadRight(ui.Cyan(groupName), 20), label, branchName, status)
+			ui.PadRight(ui.Cyan(s.groupName), 20), s.label, s.branchName, status)
 	}
+}
+
+func ShowCurrentAll(dirs []string) {
+	results := make([]repoStatus, len(dirs))
+	var wg sync.WaitGroup
+	for i, dir := range dirs {
+		wg.Add(1)
+		go func(i int, dir string) {
+			defer wg.Done()
+			results[i] = collectStatus(dir)
+		}(i, dir)
+	}
+	wg.Wait()
+
+	for i, s := range results {
+		printStatus(s, i == 0)
+	}
+}
+
+func ShowCurrent(dir string, printHeader bool) {
+	printStatus(collectStatus(dir), printHeader)
 }
 
 // extractOwner pulls the owner/org name from a git remote URL.
@@ -85,12 +131,11 @@ func extractOwner(remoteURL string) string {
 
 func ShowStatus(dir string) {
 	label := repo.Label(dir)
-	out, _ := gitutil.Git(dir, "status", "--porcelain")
-	if strings.TrimSpace(out) != "" {
-		fmt.Printf("%s: Status of branch %s:\n", ui.Cyan(label), repo.CurrentBranch(dir))
-		gitutil.GitRun(dir, "status")
-	} else {
+	out, _ := gitutil.Git(dir, "status")
+	if strings.Contains(out, "nothing to commit") {
 		fmt.Printf("%s: No changes to show.\n", ui.Cyan(label))
+	} else {
+		fmt.Printf("%s:\n%s\n", ui.Cyan(label), out)
 	}
 }
 
@@ -101,11 +146,25 @@ func DiscardChangesMulti(repos []string) {
 		dir   string
 		files string
 	}
+
+	collected := make([]dirtyRepo, len(repos))
+	var wg sync.WaitGroup
+	for i, r := range repos {
+		wg.Add(1)
+		go func(i int, r string) {
+			defer wg.Done()
+			out, _ := gitutil.Git(r, "status", "--short")
+			if strings.TrimSpace(out) != "" {
+				collected[i] = dirtyRepo{dir: r, files: out}
+			}
+		}(i, r)
+	}
+	wg.Wait()
+
 	var dirty []dirtyRepo
-	for _, r := range repos {
-		out, _ := gitutil.Git(r, "status", "--short")
-		if strings.TrimSpace(out) != "" {
-			dirty = append(dirty, dirtyRepo{dir: r, files: out})
+	for _, d := range collected {
+		if d.dir != "" {
+			dirty = append(dirty, d)
 		}
 	}
 	if len(dirty) == 0 {
