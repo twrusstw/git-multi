@@ -2,76 +2,44 @@ package fetch
 
 import (
 	"fmt"
-	"strings"
-	"sync"
 
 	"gitmulti/internal/gitutil"
-	"gitmulti/internal/repo"
+	"gitmulti/internal/status"
 	"gitmulti/internal/ui"
+	"gitmulti/internal/util"
 )
 
-type result struct {
-	label  string
-	branch string
-	ahead  string
-	behind string
-	dirty  bool
-}
-
 func FetchAll(dirs []string) {
-	results := make([]result, len(dirs))
-	var wg sync.WaitGroup
-	for i, dir := range dirs {
-		wg.Add(1)
-		go func(i int, dir string) {
-			defer wg.Done()
-			results[i] = fetchOne(dir)
-		}(i, dir)
-	}
-	wg.Wait()
+	results := util.ParallelMap(dirs, 0, fetchOne)
 
 	labelW, branchW := 10, 15
 	for _, r := range results {
-		if n := len(r.label); n > labelW {
+		if n := len(r.Label); n > labelW {
 			labelW = n
 		}
-		if n := len(r.branch); n > branchW {
+		if n := len(r.Branch); n > branchW {
 			branchW = n
 		}
 	}
 
 	for _, r := range results {
 		dirtyStr := "clean"
-		if r.dirty {
+		if r.Dirty() {
 			dirtyStr = ui.Bold("dirty")
 		}
 		fmt.Printf("%-*s  %-*s  ↑%-3s ↓%-3s  %s\n",
-			labelW, r.label,
-			branchW, r.branch,
-			r.ahead, r.behind,
+			labelW, r.Label,
+			branchW, r.Branch,
+			r.Ahead, r.Behind,
 			dirtyStr,
 		)
 	}
 }
 
-func fetchOne(dir string) result {
-	label := repo.Label(dir)
-	branch := repo.CurrentBranch(dir)
-
+// fetchOne runs `git fetch` then a single `status --branch --porcelain=v2`
+// via status.Collect — replacing the previous three separate git calls
+// (fetch + rev-list + status --porcelain).
+func fetchOne(dir string) status.Info {
 	gitutil.GitOK(dir, "fetch")
-
-	ahead, behind := "N/A", "N/A"
-	counts, err := gitutil.Git(dir, "rev-list", "--count", "--left-right", "HEAD...@{u}")
-	if err == nil {
-		parts := strings.SplitN(counts, "\t", 2)
-		if len(parts) == 2 {
-			ahead = parts[0]
-			behind = parts[1]
-		}
-	}
-
-	statusOut, _ := gitutil.Git(dir, "status", "--porcelain")
-	dirty := strings.TrimSpace(statusOut) != ""
-
-	return result{label: label, branch: branch, ahead: ahead, behind: behind, dirty: dirty}
+	return status.Collect(dir)
 }

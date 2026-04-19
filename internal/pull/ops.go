@@ -3,11 +3,11 @@ package pull
 import (
 	"fmt"
 	"strings"
-	"sync"
 
 	"gitmulti/internal/gitutil"
 	"gitmulti/internal/repo"
 	"gitmulti/internal/ui"
+	"gitmulti/internal/util"
 )
 
 type pullState struct {
@@ -20,16 +20,9 @@ type pullState struct {
 
 // PullAll runs the three-phase cascade across all dirs, then handles conflicts as a group.
 func PullAll(dirs []string, branchName string) {
-	states := make([]pullState, len(dirs))
-	var wg sync.WaitGroup
-	for i, dir := range dirs {
-		wg.Add(1)
-		go func(i int, dir string) {
-			defer wg.Done()
-			states[i] = cascade(dir, branchName)
-		}(i, dir)
-	}
-	wg.Wait()
+	states := util.ParallelMap(dirs, 0, func(dir string) pullState {
+		return cascade(dir, branchName)
+	})
 
 	var conflicts []pullState
 	for _, s := range states {
@@ -43,26 +36,34 @@ func PullAll(dirs []string, branchName string) {
 }
 
 // PullRebase runs git pull --rebase on each dir concurrently; no cascade.
+// Output is buffered per-repo and flushed under printMu so parallel rebases
+// don't interleave their progress lines on the terminal.
+//
+// Tradeoff: no real-time progress — a slow rebase on a large repo shows
+// nothing until it finishes. If this becomes a UX problem, serialise the
+// loop instead of switching back to GitRun (which reintroduces interleaving).
 func PullRebase(dirs []string, branchName string) {
-	var wg sync.WaitGroup
-	for _, dir := range dirs {
-		wg.Add(1)
-		go func(dir string) {
-			defer wg.Done()
-			label := repo.Label(dir)
-			branch := effectiveBranch(dir, branchName)
-			args := []string{"pull", "--rebase"}
-			if branch != "" {
-				args = append(args, "origin", branch)
+	util.ParallelDo(dirs, 0, func(dir string) {
+		label := repo.Label(dir)
+		branch := effectiveBranch(dir, branchName)
+		args := []string{"pull", "--rebase"}
+		if branch != "" {
+			args = append(args, "origin", branch)
+		}
+		out, err := gitutil.GitCombined(dir, args...)
+		ui.LockedPrint(func() {
+			if err != nil {
+				ui.Errorf("%s: pull --rebase failed\n", ui.Cyan(label))
+			} else {
+				fmt.Printf("%s: pull --rebase OK\n", ui.Cyan(label))
 			}
-			if err := gitutil.GitRun(dir, args...); err != nil {
-				ui.LockedPrint(func() {
-					ui.Errorf("%s: pull --rebase failed\n", ui.Cyan(label))
-				})
+			if out != "" {
+				for _, line := range strings.Split(out, "\n") {
+					fmt.Printf("  %s\n", line)
+				}
 			}
-		}(dir)
-	}
-	wg.Wait()
+		})
+	})
 }
 
 func cascade(dir, branchName string) pullState {

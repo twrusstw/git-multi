@@ -6,11 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"gitmulti/internal/gitutil"
 	"gitmulti/internal/repo"
 	"gitmulti/internal/ui"
+	"gitmulti/internal/util"
 )
 
 type repoStatus struct {
@@ -22,6 +22,40 @@ type repoStatus struct {
 	untracked  int
 	unstaged   int
 	staged     int
+}
+
+// Info is the public view of a repo's status, reused by other packages
+// (fetch, etc.) to avoid duplicating the `status --porcelain=v2` parse.
+type Info struct {
+	Label     string
+	Branch    string
+	Ahead     string // "N/A" when unknown (no upstream)
+	Behind    string
+	Untracked int
+	Unstaged  int
+	Staged    int
+}
+
+// Dirty reports whether any file-level change is present.
+func (i Info) Dirty() bool {
+	return i.Untracked > 0 || i.Unstaged > 0 || i.Staged > 0
+}
+
+// Collect runs `git status --branch --porcelain=v2` once and returns the
+// public Info view. Does not read origin URL (use collectStatus internally
+// when the group column is needed).
+func Collect(dir string) Info {
+	out, _ := gitutil.GitBytes(dir, "status", "--branch", "--porcelain=v2")
+	s := parseStatusV2(out)
+	return Info{
+		Label:     repo.Label(dir),
+		Branch:    s.branchName,
+		Ahead:     s.pushCount,
+		Behind:    s.pullCount,
+		Untracked: s.untracked,
+		Unstaged:  s.unstaged,
+		Staged:    s.staged,
+	}
 }
 
 func collectStatus(dir string) repoStatus {
@@ -120,17 +154,7 @@ func printStatus(s repoStatus, printHeader bool) {
 }
 
 func ShowCurrentAll(dirs []string) {
-	results := make([]repoStatus, len(dirs))
-	var wg sync.WaitGroup
-	for i, dir := range dirs {
-		wg.Add(1)
-		go func(i int, dir string) {
-			defer wg.Done()
-			results[i] = collectStatus(dir)
-		}(i, dir)
-	}
-	wg.Wait()
-
+	results := util.ParallelMap(dirs, 0, collectStatus)
 	for i, s := range results {
 		printStatus(s, i == 0)
 	}
@@ -179,19 +203,13 @@ func DiscardChangesMulti(repos []string) {
 		files string
 	}
 
-	collected := make([]dirtyRepo, len(repos))
-	var wg sync.WaitGroup
-	for i, r := range repos {
-		wg.Add(1)
-		go func(i int, r string) {
-			defer wg.Done()
-			out, _ := gitutil.Git(r, "status", "--short")
-			if strings.TrimSpace(out) != "" {
-				collected[i] = dirtyRepo{dir: r, files: out}
-			}
-		}(i, r)
-	}
-	wg.Wait()
+	collected := util.ParallelMap(repos, 0, func(r string) dirtyRepo {
+		out, _ := gitutil.Git(r, "status", "--short")
+		if strings.TrimSpace(out) == "" {
+			return dirtyRepo{}
+		}
+		return dirtyRepo{dir: r, files: out}
+	})
 
 	var dirty []dirtyRepo
 	for _, d := range collected {

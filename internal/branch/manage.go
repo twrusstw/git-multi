@@ -3,11 +3,11 @@ package branch
 import (
 	"fmt"
 	"strings"
-	"sync"
 
 	"gitmulti/internal/gitutil"
 	"gitmulti/internal/repo"
 	"gitmulti/internal/ui"
+	"gitmulti/internal/util"
 )
 
 type repoWithBranch struct {
@@ -17,21 +17,13 @@ type repoWithBranch struct {
 }
 
 func scanForBranch(dirs []string, branchName string) []repoWithBranch {
-	results := make([]repoWithBranch, len(dirs))
-	var wg sync.WaitGroup
-	for i, dir := range dirs {
-		wg.Add(1)
-		go func(i int, dir string) {
-			defer wg.Done()
-			results[i] = repoWithBranch{
-				dir:   dir,
-				label: repo.Label(dir),
-				has:   repo.BranchExistsLocal(dir, branchName),
-			}
-		}(i, dir)
-	}
-	wg.Wait()
-	return results
+	return util.ParallelMap(dirs, 0, func(dir string) repoWithBranch {
+		return repoWithBranch{
+			dir:   dir,
+			label: repo.Label(dir),
+			has:   repo.BranchExistsLocal(dir, branchName),
+		}
+	})
 }
 
 // Delete deletes branchName in repos that have it. deleteRemote also removes origin/<branchName>.

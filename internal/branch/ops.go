@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
-	"sync"
 
 	"gitmulti/internal/gitutil"
 	"gitmulti/internal/repo"
@@ -75,15 +74,19 @@ func Switch(dir, branch string) {
 		gitutil.GitRun(dir, "reset", "--hard", "HEAD")
 	}
 
-	if repo.BranchExistsLocal(dir, branch) || repo.BranchExistsRemote(dir, branch) {
+	// Only consult local refs here: git checkout can only DWIM-create a
+	// tracking branch from a cached remote-tracking ref, so asking the
+	// network via ls-remote adds no capability — just serial latency.
+	// Run `gitmulti fetch` first if the remote-tracking ref is stale.
+	if repo.BranchExistsLocal(dir, branch) || repo.BranchExistsRemoteLocal(dir, branch) {
 		fmt.Printf("%s: Switching to branch %s.\n", ui.Cyan(label), branch)
 		gitutil.GitRun(dir, "checkout", branch)
 	} else {
-		fmt.Printf("%s: Branch %s not found locally or on remote.\n", ui.Cyan(label), branch)
+		fmt.Printf("%s: Branch %s not found locally (fetch first?).\n", ui.Cyan(label), branch)
 	}
 }
 
-func switchForce(dir, branch string, quiet, localRefs bool) {
+func switchForce(dir, branch string, quiet bool) {
 	label := repo.Label(dir)
 	cur := repo.CurrentBranch(dir)
 	if cur == branch {
@@ -92,13 +95,8 @@ func switchForce(dir, branch string, quiet, localRefs bool) {
 		}
 		return
 	}
-	var exists bool
-	if localRefs {
-		exists = repo.BranchExistsLocal(dir, branch) || repo.BranchExistsRemoteLocal(dir, branch)
-	} else {
-		exists = repo.BranchExistsLocal(dir, branch) || repo.BranchExistsRemote(dir, branch)
-	}
-	if exists {
+	// Local refs only — see Switch() comment for rationale.
+	if repo.BranchExistsLocal(dir, branch) || repo.BranchExistsRemoteLocal(dir, branch) {
 		if !quiet {
 			fmt.Printf("%s: Switching to branch %s.\n", ui.Cyan(label), branch)
 		}
@@ -106,8 +104,8 @@ func switchForce(dir, branch string, quiet, localRefs bool) {
 	}
 }
 
-func SwitchForce(dir, branch string)      { switchForce(dir, branch, false, false) }
-func SwitchForceQuiet(dir, branch string) { switchForce(dir, branch, true, true) }
+func SwitchForce(dir, branch string)      { switchForce(dir, branch, false) }
+func SwitchForceQuiet(dir, branch string) { switchForce(dir, branch, true) }
 
 func Find(dir, keyword string) {
 	label := repo.Label(dir)
@@ -138,26 +136,19 @@ func ListAllNames(root, keyword string) []string {
 	}
 
 	repos := repo.FindGitRepos(root)
-	results := make([][]string, len(repos))
-	var wg sync.WaitGroup
-	for i, r := range repos {
-		wg.Add(1)
-		go func(i int, r string) {
-			defer wg.Done()
-			out, err := gitutil.Git(r, args...)
-			if err != nil {
-				return
+	results := util.ParallelMap(repos, 0, func(r string) []string {
+		out, err := gitutil.Git(r, args...)
+		if err != nil {
+			return nil
+		}
+		var names []string
+		for _, line := range strings.Split(out, "\n") {
+			if name := util.NormaliseBranchName(line); name != "" {
+				names = append(names, name)
 			}
-			var names []string
-			for _, line := range strings.Split(out, "\n") {
-				if name := util.NormaliseBranchName(line); name != "" {
-					names = append(names, name)
-				}
-			}
-			results[i] = names
-		}(i, r)
-	}
-	wg.Wait()
+		}
+		return names
+	})
 
 	seen := map[string]bool{}
 	var names []string

@@ -38,3 +38,13 @@ func GitOK(dir string, args ...string) bool {
 	cmd.Dir = dir
 	return cmd.Run() == nil
 }
+
+// GitCombined runs git and returns merged stdout+stderr as a string, trimmed.
+// Use this from concurrent goroutines when the caller needs git's own output
+// but must not let it interleave with sibling processes on the terminal.
+func GitCombined(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}

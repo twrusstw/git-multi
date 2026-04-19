@@ -3,37 +3,35 @@ package stash
 import (
 	"fmt"
 	"strings"
-	"sync"
 
 	"gitmulti/internal/gitutil"
 	"gitmulti/internal/repo"
 	"gitmulti/internal/ui"
+	"gitmulti/internal/util"
 )
 
 // Stash runs git stash on all repos with uncommitted changes.
+// Uses GitCombined so parallel stash messages don't interleave on the terminal.
+//
+// Tradeoff: git's own "Saved working directory..." output is swallowed;
+// only our single-line summary is printed. Stash is fast so lack of
+// real-time progress doesn't hurt here.
 func Stash(dirs []string) {
-	var wg sync.WaitGroup
-	for _, dir := range dirs {
-		wg.Add(1)
-		go func(dir string) {
-			defer wg.Done()
-			label := repo.Label(dir)
-			out, _ := gitutil.Git(dir, "status", "--porcelain")
-			if strings.TrimSpace(out) == "" {
-				return
-			}
-			if err := gitutil.GitRun(dir, "stash"); err != nil {
-				ui.LockedPrint(func() {
-					ui.Errorf("%s: stash failed\n", ui.Cyan(label))
-				})
+	util.ParallelDo(dirs, 0, func(dir string) {
+		label := repo.Label(dir)
+		out, _ := gitutil.Git(dir, "status", "--porcelain")
+		if strings.TrimSpace(out) == "" {
+			return
+		}
+		_, err := gitutil.GitCombined(dir, "stash")
+		ui.LockedPrint(func() {
+			if err != nil {
+				ui.Errorf("%s: stash failed\n", ui.Cyan(label))
 			} else {
-				ui.LockedPrint(func() {
-					fmt.Printf("%s: stashed\n", ui.Cyan(label))
-				})
+				fmt.Printf("%s: stashed\n", ui.Cyan(label))
 			}
-		}(dir)
-	}
-	wg.Wait()
+		})
+	})
 }
 
 // Pop runs git stash pop on all repos that have stash entries.
@@ -48,38 +46,32 @@ func popOrApply(dirs []string, keepStash bool) {
 		verb = "apply"
 	}
 
-	var wg sync.WaitGroup
-	for _, dir := range dirs {
-		wg.Add(1)
-		go func(dir string) {
-			defer wg.Done()
-			label := repo.Label(dir)
+	util.ParallelDo(dirs, 0, func(dir string) {
+		label := repo.Label(dir)
 
-			list, _ := gitutil.Git(dir, "stash", "list")
-			if strings.TrimSpace(list) == "" {
-				return
-			}
+		list, _ := gitutil.Git(dir, "stash", "list")
+		if strings.TrimSpace(list) == "" {
+			return
+		}
 
-			_, err := gitutil.Git(dir, "stash", verb)
-			if err != nil {
-				statusOut, _ := gitutil.Git(dir, "status", "--porcelain")
-				ui.LockedPrint(func() {
-					ui.Errorf("%s: stash %s conflict\n", ui.Cyan(label), verb)
-					for _, line := range strings.Split(statusOut, "\n") {
-						if len(line) >= 2 && (line[0] == 'U' || line[1] == 'U' || (line[0] == 'A' && line[1] == 'A')) {
-							ui.Errorf("  %s\n", strings.TrimSpace(line[3:]))
-						}
+		_, err := gitutil.Git(dir, "stash", verb)
+		if err != nil {
+			statusOut, _ := gitutil.Git(dir, "status", "--porcelain")
+			ui.LockedPrint(func() {
+				ui.Errorf("%s: stash %s conflict\n", ui.Cyan(label), verb)
+				for _, line := range strings.Split(statusOut, "\n") {
+					if len(line) >= 2 && (line[0] == 'U' || line[1] == 'U' || (line[0] == 'A' && line[1] == 'A')) {
+						ui.Errorf("  %s\n", strings.TrimSpace(line[3:]))
 					}
-					ui.Errorf("  → resolve manually, then: git add <file> && git stash drop\n")
-				})
-			} else {
-				ui.LockedPrint(func() {
-					fmt.Printf("%s: stash %s OK\n", ui.Cyan(label), verb)
-				})
-			}
-		}(dir)
-	}
-	wg.Wait()
+				}
+				ui.Errorf("  → resolve manually, then: git add <file> && git stash drop\n")
+			})
+		} else {
+			ui.LockedPrint(func() {
+				fmt.Printf("%s: stash %s OK\n", ui.Cyan(label), verb)
+			})
+		}
+	})
 }
 
 // List shows stash entries for all repos that have them.
@@ -88,20 +80,13 @@ func List(dirs []string) {
 		label string
 		list  string
 	}
-	results := make([]entry, len(dirs))
-
-	var wg sync.WaitGroup
-	for i, dir := range dirs {
-		wg.Add(1)
-		go func(i int, dir string) {
-			defer wg.Done()
-			list, _ := gitutil.Git(dir, "stash", "list")
-			if strings.TrimSpace(list) != "" {
-				results[i] = entry{repo.Label(dir), list}
-			}
-		}(i, dir)
-	}
-	wg.Wait()
+	results := util.ParallelMap(dirs, 0, func(dir string) entry {
+		list, _ := gitutil.Git(dir, "stash", "list")
+		if strings.TrimSpace(list) == "" {
+			return entry{}
+		}
+		return entry{repo.Label(dir), list}
+	})
 
 	found := false
 	for _, r := range results {

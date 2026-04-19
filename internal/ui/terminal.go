@@ -11,6 +11,11 @@ import (
 
 // StdinReader is a shared reader so that buffered bytes are not lost between
 // successive PromptYN calls across multiple repos.
+//
+// NOT goroutine-safe. All callers of PromptYN / PromptMenu must run on the
+// main goroutine (or a serial section after wg.Wait()). Two goroutines
+// reading from the same bufio.Reader will split a single "y\n" between them
+// and return mismatched answers.
 var StdinReader = bufio.NewReader(os.Stdin)
 
 // printMu serialises multi-line output blocks so that concurrent goroutines
