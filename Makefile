@@ -40,4 +40,5 @@ uninstall:
 			echo "Removed auto-completion from $$rc."; \
 		fi; \
 	done
+	rm -f /tmp/gitmulti-cache-*
 	@echo "Uninstall complete. Restart your shell or run: exec $$SHELL"
