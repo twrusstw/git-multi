@@ -6,11 +6,29 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // StdinReader is a shared reader so that buffered bytes are not lost between
 // successive PromptYN calls across multiple repos.
 var StdinReader = bufio.NewReader(os.Stdin)
+
+// printMu serialises multi-line output blocks so that concurrent goroutines
+// do not interleave their lines on stdout.
+var printMu sync.Mutex
+
+// LockedPrint executes fn while holding the shared output lock.
+func LockedPrint(fn func()) {
+	printMu.Lock()
+	defer printMu.Unlock()
+	fn()
+}
+
+// Errorf writes an error/warning message to stderr so it stays separate from
+// normal stdout output (enabling clean pipes of status/list subcommands).
+func Errorf(format string, a ...any) {
+	fmt.Fprintf(os.Stderr, format, a...)
+}
 
 // PromptYN prints a question and reads a y/n answer from stdin.
 func PromptYN(question string) bool {
@@ -38,30 +56,55 @@ func PadRight(s string, width int) string {
 	return s + strings.Repeat(" ", width-visible)
 }
 
+// PromptMenu prints numbered options and returns the chosen index (1-based).
+// Returns len(options) on invalid input.
+func PromptMenu(options []string) int {
+	for i, opt := range options {
+		fmt.Printf("  %d) %s\n", i+1, opt)
+	}
+	fmt.Print("> ")
+	line, _ := StdinReader.ReadString('\n')
+	line = strings.TrimSpace(line)
+	for i := range options {
+		if line == fmt.Sprintf("%d", i+1) {
+			return i + 1
+		}
+	}
+	return len(options)
+}
+
 // ShowHelp prints usage information.
 func ShowHelp() {
-	fmt.Print(`Usage: gitmulti [OPTION] [BRANCH] [-d DIRECTORY]
+	fmt.Print(`Usage: gitmulti <subcommand> [args] [-C directory]
 
-Options:
-  -p   [branch]   Pull branch (stash fallback, then interactive force)
-  -pf  [branch]   Force pull (hard reset to origin)
-  -s   <branch>   Switch branch (prompts if uncommitted changes exist)
-  -sf  <branch>   Force switch branch
-  -F   <keyword>  Find branch by keyword across repos
-  -b              Show current branch + status for each repo
-  -al  [keyword]  List all unique branches (optionally filtered)
-  -dc             Discard all changes (reset --hard && clean -fd)
-  -st             Show git status for repos with changes
-  -nb  <branch>   Create new branch if uncommitted changes exist (skips lock files)
-  -d   <path>     Target a single specific repository directory
-  -h              Show this help message
+Subcommands:
+  pull [--rebase] [branch]   Pull (ff-only → stash+pull → group conflict menu)
+  push [branch]              Push; auto-sets upstream for new branches
+  fetch                      Fetch then show ahead/behind/dirty table
+  switch <branch>            Switch branch (prompts on uncommitted changes)
+  switch -f <branch>         Force switch (no prompt)
+  switch -c <branch>         Create new branch in repos with changes
+  branch                     Show ahead/behind/dirty status table
+  branch -a [keyword]        List all unique branches (optional filter)
+  branch --find <keyword>    Find branches matching keyword across repos
+  branch -d <name> [--remote]  Delete branch (confirm per repo)
+  branch -D <name> [--remote]  Force-delete branch (warns if unmerged)
+  branch -m <old> <new>      Rename branch (offers remote sync)
+  status                     Show file-level changes for repos with changes
+  stash                      Stash changes in all dirty repos
+  stash pop                  Pop stash (shows conflicts with resolution hint)
+  stash apply                Apply stash without dropping it
+  stash list                 List stash entries for all repos
+  discard                    Discard all changes (prompts first)
+
+Flags:
+  -C <path>   Target a single repository directory
 
 Examples:
-  gitmulti -s feature-branch
-  gitmulti -p main
-  gitmulti -F hotfix
-  gitmulti -b
-  gitmulti -p main -d ./my-repo
+  gitmulti pull main
+  gitmulti switch feature-branch
+  gitmulti branch --find hotfix
+  gitmulti push -C ./my-repo
 `)
 }
 

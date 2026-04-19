@@ -15,6 +15,14 @@ func Git(dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// GitBytes runs a git command in dir and returns raw stdout bytes (no trimming).
+// Use this when the output contains NUL separators (e.g. `--porcelain -z`).
+func GitBytes(dir string, args ...string) ([]byte, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	return cmd.Output()
+}
+
 // GitRun runs a git command attached to the terminal (for interactive output).
 func GitRun(dir string, args ...string) error {
 	cmd := exec.Command("git", args...)

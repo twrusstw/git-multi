@@ -18,6 +18,10 @@ func BranchName(name string) error {
 	if !validBranchName.MatchString(name) {
 		return fmt.Errorf("invalid branch name %q: only alphanumeric, '.', '-', '_', '/' allowed", name)
 	}
+	// A leading '-' would be interpreted as a git flag when passed as a positional arg.
+	if strings.HasPrefix(name, "-") {
+		return fmt.Errorf("invalid branch name %q: must not start with '-'", name)
+	}
 	// Reject path traversal attempts.
 	if strings.Contains(name, "..") {
 		return fmt.Errorf("invalid branch name %q: must not contain '..'", name)
@@ -32,6 +36,9 @@ func Keyword(kw string) error {
 	}
 	if !validBranchName.MatchString(kw) {
 		return fmt.Errorf("invalid keyword %q: only alphanumeric, '.', '-', '_', '/' allowed", kw)
+	}
+	if strings.HasPrefix(kw, "-") {
+		return fmt.Errorf("invalid keyword %q: must not start with '-'", kw)
 	}
 	return nil
 }

@@ -5,44 +5,129 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"gitmulti/internal/branch"
+	"gitmulti/internal/completion"
+	"gitmulti/internal/fetch"
 	"gitmulti/internal/pull"
+	"gitmulti/internal/push"
 	"gitmulti/internal/repo"
+	"gitmulti/internal/stash"
 	"gitmulti/internal/status"
 	"gitmulti/internal/ui"
 	"gitmulti/internal/validate"
 )
 
-var allFlags = []string{"-p", "-pf", "-s", "-sf", "-F", "-b", "-al", "-dc", "-st", "-nb", "-d", "-h"}
+var subcommands = []string{
+	"pull", "push", "fetch",
+	"switch", "branch", "status",
+	"stash", "discard",
+}
 
-// noArgFlags are flags that take no branch/value argument.
-var noArgFlags = map[string]bool{"-b": true, "-st": true, "-dc": true, "-h": true, "-al": true}
-
-// parallelOps lists ops that are safe to run concurrently (no per-repo interactive prompts).
-var parallelOps = map[string]bool{"-pf": true, "-sf": true, "-F": true, "-st": true, "-nb": true}
-
-func runComplete(prev, cur string) {
+func runComplete(tokens []string) {
 	root, _ := os.Getwd()
-	switch {
-	case prev == "-d":
-		for _, name := range repo.FindGitRepoNames(root) {
+
+	if len(tokens) == 0 {
+		for _, s := range subcommands {
+			fmt.Println(s)
+		}
+		return
+	}
+
+	cur := tokens[len(tokens)-1]
+
+	// If completing -C argument, list repo directory names.
+	if len(tokens) >= 2 && tokens[len(tokens)-2] == "-C" {
+		for _, name := range completion.RepoNames(root) {
 			if strings.HasPrefix(name, cur) {
 				fmt.Println(name)
 			}
 		}
-	case strings.HasPrefix(cur, "-"):
-		for _, f := range allFlags {
-			if strings.HasPrefix(f, cur) {
-				fmt.Println(f)
+		return
+	}
+
+	// Strip -C <path> pairs to get clean subcommand tokens.
+	clean := make([]string, 0, len(tokens))
+	for i := 0; i < len(tokens); i++ {
+		if tokens[i] == "-C" {
+			i++ // skip path value
+		} else {
+			clean = append(clean, tokens[i])
+		}
+	}
+	if len(clean) == 0 {
+		return
+	}
+
+	// One token means user is still typing the subcommand word.
+	if len(clean) == 1 {
+		for _, s := range subcommands {
+			if strings.HasPrefix(s, cur) {
+				fmt.Println(s)
 			}
 		}
-	case noArgFlags[prev]:
-		// no completions
-	default:
-		for _, name := range branch.ListAllNames(root, cur) {
-			fmt.Println(name)
+		return
+	}
+
+	sub := clean[0]
+	rest := clean[1:] // rest[len-1] == cur
+
+	printBranches := func() {
+		for _, name := range completion.BranchNames(root) {
+			if strings.HasPrefix(name, cur) {
+				fmt.Println(name)
+			}
+		}
+	}
+
+	switch sub {
+	case "pull":
+		if len(rest) == 1 {
+			printBranches()
+			if strings.HasPrefix("--rebase", cur) {
+				fmt.Println("--rebase")
+			}
+		} else if rest[0] == "--rebase" {
+			printBranches()
+		}
+
+	case "push":
+		printBranches()
+
+	case "switch":
+		if len(rest) == 1 {
+			printBranches()
+			for _, f := range []string{"-f", "-c"} {
+				if strings.HasPrefix(f, cur) {
+					fmt.Println(f)
+				}
+			}
+		} else if rest[0] == "-f" && len(rest) == 2 {
+			printBranches()
+		}
+
+	case "branch":
+		if len(rest) == 1 {
+			for _, flag := range []string{"-a", "--find", "-d", "-D", "-m"} {
+				if strings.HasPrefix(flag, cur) {
+					fmt.Println(flag)
+				}
+			}
+		} else if len(rest) == 2 {
+			switch rest[0] {
+			case "--find", "-d", "-D", "-m":
+				printBranches()
+			}
+		}
+		// branch -m <old> <TAB>: new name, no completion
+
+	case "stash":
+		if len(rest) == 1 {
+			for _, s := range []string{"pop", "apply", "list"} {
+				if strings.HasPrefix(s, cur) {
+					fmt.Println(s)
+				}
+			}
 		}
 	}
 }
@@ -50,144 +135,219 @@ func runComplete(prev, cur string) {
 func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
-		ui.Fatalf("no arguments provided.")
-	}
-
-	op := args[0]
-	if op == "-h" {
 		ui.ShowHelp()
 		return
 	}
 
-	if op == "__complete" {
-		rest := args[1:]
-		var prev, cur string
-		if len(rest) >= 1 {
-			prev = rest[0]
-		}
-		if len(rest) >= 2 {
-			cur = rest[1]
-		}
-		runComplete(prev, cur)
+	if args[0] == "__complete" {
+		runComplete(args[1:])
 		return
 	}
 
-	var branchName, specifiedDir string
-	rest := args[1:]
-	for i := 0; i < len(rest); i++ {
-		switch rest[i] {
-		case "-d":
-			if i+1 >= len(rest) {
-				ui.Fatalf("-d requires a directory path.")
+	// Extract -C <path> flag (can appear anywhere).
+	var specifiedDir string
+	var filtered []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-C" {
+			if i+1 >= len(args) {
+				ui.Fatalf("-C requires a directory path.")
 			}
-			specifiedDir = filepath.Clean(rest[i+1])
+			specifiedDir = filepath.Clean(args[i+1])
 			i++
-		default:
-			if branchName == "" && !strings.HasPrefix(rest[i], "-") {
-				branchName = rest[i]
-			}
+		} else {
+			filtered = append(filtered, args[i])
 		}
 	}
+	args = filtered
 
-	// -al is special: iterates internally and exits.
-	if op == "-al" {
-		if err := validate.Keyword(branchName); err != nil {
-			ui.Fatalf("%v", err)
-		}
-		root, _ := os.Getwd()
-		branch.ListAll(root, branchName)
+	if len(args) == 0 {
+		ui.Fatalf("no subcommand provided.")
+	}
+
+	sub := args[0]
+	rest := args[1:]
+
+	if sub == "help" || sub == "-h" || sub == "--help" {
+		ui.ShowHelp()
 		return
 	}
 
-	if err := validate.BranchName(branchName); err != nil {
-		ui.Fatalf("%v", err)
-	}
-
-	switch op {
-	case "-s", "-sf", "-F", "-nb":
-		if branchName == "" {
-			ui.Fatalf("option %s requires a branch name.", op)
-		}
-	}
-
-	// Single-repo mode.
+	// Resolve working set of repos.
+	var repos []string
 	if specifiedDir != "" {
 		absDir, err := filepath.Abs(specifiedDir)
 		if err != nil || !repo.IsGitRepo(absDir) {
 			ui.Fatalf("invalid or non-git directory: %s", specifiedDir)
 		}
-		if op == "-dc" {
-			status.DiscardChangesMulti([]string{absDir})
+		repos = []string{absDir}
+	} else {
+		root, err := os.Getwd()
+		if err != nil {
+			ui.Fatalf("cannot determine working directory: %v", err)
+		}
+		repos = repo.FindGitRepos(root)
+		if len(repos) == 0 {
+			fmt.Fprintln(os.Stderr, "No git repositories found in current directory.")
+			os.Exit(1)
+		}
+	}
+
+	switch sub {
+	case "pull":
+		rebase := len(rest) > 0 && rest[0] == "--rebase"
+		branchName := ""
+		for _, a := range rest {
+			if !strings.HasPrefix(a, "-") {
+				branchName = a
+				break
+			}
+		}
+		if err := validate.BranchName(branchName); err != nil {
+			ui.Fatalf("%v", err)
+		}
+		if rebase {
+			pull.PullRebase(repos, branchName)
+		} else {
+			pull.PullAll(repos, branchName)
+		}
+
+	case "push":
+		branchName := argOrEmpty(rest)
+		if err := validate.BranchName(branchName); err != nil {
+			ui.Fatalf("%v", err)
+		}
+		for _, r := range repos {
+			push.Push(r, branchName)
+		}
+
+	case "fetch":
+		fetch.FetchAll(repos)
+
+	case "switch":
+		if len(rest) == 0 {
+			ui.Fatalf("switch requires a branch name.")
+		}
+		switch rest[0] {
+		case "-f":
+			if len(rest) < 2 {
+				ui.Fatalf("switch -f requires a branch name.")
+			}
+			branchName := rest[1]
+			if err := validate.BranchName(branchName); err != nil {
+				ui.Fatalf("%v", err)
+			}
+			for _, r := range repos {
+				branch.SwitchForce(r, branchName)
+			}
+		case "-c":
+			if len(rest) < 2 {
+				ui.Fatalf("switch -c requires a branch name.")
+			}
+			branchName := rest[1]
+			if err := validate.BranchName(branchName); err != nil {
+				ui.Fatalf("%v", err)
+			}
+			for _, r := range repos {
+				branch.CreateIfModified(r, branchName)
+			}
+		default:
+			branchName := rest[0]
+			if err := validate.BranchName(branchName); err != nil {
+				ui.Fatalf("%v", err)
+			}
+			for _, r := range repos {
+				branch.Switch(r, branchName)
+			}
+		}
+
+	case "branch":
+		root, _ := os.Getwd()
+		if specifiedDir != "" {
+			root = specifiedDir
+		}
+		if len(rest) == 0 {
+			status.ShowCurrentAll(repos)
 			return
 		}
-		runOp(op, absDir, branchName, true)
-		return
-	}
-
-	// Multi-repo mode.
-	root, err := os.Getwd()
-	if err != nil {
-		ui.Fatalf("cannot determine working directory: %v", err)
-	}
-
-	repos := repo.FindGitRepos(root)
-	if len(repos) == 0 {
-		fmt.Fprintln(os.Stderr, "No git repositories found in current directory.")
-		os.Exit(1)
-	}
-
-	if op == "-dc" {
-		status.DiscardChangesMulti(repos)
-		return
-	}
-
-	if op == "-b" {
-		status.ShowCurrentAll(repos)
-		return
-	}
-
-	if parallelOps[op] {
-		var wg sync.WaitGroup
-		for _, r := range repos {
-			wg.Add(1)
-			go func(r string) {
-				defer wg.Done()
-				runOp(op, r, branchName, false)
-			}(r)
+		switch rest[0] {
+		case "-a":
+			keyword := argOrEmpty(rest[1:])
+			if err := validate.Keyword(keyword); err != nil {
+				ui.Fatalf("%v", err)
+			}
+			branch.ListAll(root, keyword)
+		case "--find":
+			if len(rest) < 2 {
+				ui.Fatalf("branch --find requires a keyword.")
+			}
+			keyword := rest[1]
+			for _, r := range repos {
+				branch.Find(r, keyword)
+			}
+		case "-d":
+			if len(rest) < 2 {
+				ui.Fatalf("branch -d requires a branch name.")
+			}
+			deleteRemote := containsFlag(rest, "--remote")
+			branch.Delete(repos, rest[1], deleteRemote)
+		case "-D":
+			if len(rest) < 2 {
+				ui.Fatalf("branch -D requires a branch name.")
+			}
+			deleteRemote := containsFlag(rest, "--remote")
+			branch.ForceDelete(repos, rest[1], deleteRemote)
+		case "-m":
+			if len(rest) < 3 {
+				ui.Fatalf("branch -m requires <old> <new>.")
+			}
+			branch.Rename(repos, rest[1], rest[2])
+		default:
+			ui.Fatalf("unknown branch flag: %s", rest[0])
 		}
-		wg.Wait()
-		return
-	}
 
-	isFirst := true
-	for _, r := range repos {
-		runOp(op, r, branchName, isFirst)
-		isFirst = false
+	case "status":
+		for _, r := range repos {
+			status.ShowStatus(r)
+		}
+
+	case "stash":
+		if len(rest) == 0 {
+			stash.Stash(repos)
+			return
+		}
+		switch rest[0] {
+		case "pop":
+			stash.Pop(repos)
+		case "apply":
+			stash.Apply(repos)
+		case "list":
+			stash.List(repos)
+		default:
+			ui.Fatalf("unknown stash subcommand: %s", rest[0])
+		}
+
+	case "discard":
+		status.DiscardChangesMulti(repos)
+
+	default:
+		ui.Fatalf("unknown subcommand: %s", sub)
 	}
 }
 
-// runOp dispatches a single operation for one repository.
-func runOp(op, dir, branchName string, isFirst bool) {
-	switch op {
-	case "-p":
-		pull.Pull(dir, branchName)
-	case "-pf":
-		pull.PullForce(dir, branchName)
-	case "-s":
-		branch.Switch(dir, branchName)
-	case "-sf":
-		branch.SwitchForce(dir, branchName)
-	case "-F":
-		branch.Find(dir, branchName)
-	case "-b":
-		status.ShowCurrent(dir, isFirst)
-	case "-dc":
-		status.DiscardChanges(dir)
-	case "-st":
-		status.ShowStatus(dir)
-	case "-nb":
-		branch.CreateIfModified(dir, branchName)
-	default:
-		ui.Fatalf("unknown option: %s", op)
+func argOrEmpty(args []string) string {
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") {
+			return a
+		}
 	}
+	return ""
+}
+
+func containsFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if a == flag {
+			return true
+		}
+	}
+	return false
 }

@@ -2,71 +2,190 @@ package pull
 
 import (
 	"fmt"
+	"strings"
+	"sync"
 
 	"gitmulti/internal/gitutil"
 	"gitmulti/internal/repo"
 	"gitmulti/internal/ui"
 )
 
-func Pull(dir, branchName string) {
-	if branchName == "" {
-		branchName = repo.CurrentBranch(dir)
-	}
-	label := repo.Label(dir)
-	fmt.Printf("%s: Pulling branch %s.\n", ui.Cyan(label), branchName)
-
-	gitutil.GitRun(dir, "fetch", "--all") //nolint — errors printed by git
-
-	if err := gitutil.GitRun(dir, "checkout", branchName); err != nil {
-		fmt.Printf("%s: Could not checkout branch %s.\n", ui.Cyan(label), branchName)
-		return
-	}
-
-	if err := gitutil.GitRun(dir, "merge", "--ff-only", "origin/"+branchName); err == nil {
-		fmt.Printf("%s: Pulled changes from branch %s.\n", ui.Cyan(label), branchName)
-	} else {
-		fmt.Printf("%s: Stashing local changes and pulling branch %s.\n", ui.Cyan(label), branchName)
-		stashed := gitutil.GitOK(dir, "stash")
-		if err2 := gitutil.GitRun(dir, "merge", "--ff-only", "origin/"+branchName); err2 == nil {
-			fmt.Printf("%s: Pulled changes from branch %s.\n", ui.Cyan(label), branchName)
-			if stashed {
-				if popErr := gitutil.GitRun(dir, "stash", "pop"); popErr != nil {
-					fmt.Printf("%s: WARNING: stash pop has conflicts — repo left in conflict state.\n", ui.Cyan(label))
-					fmt.Printf("  Conflicting files:\n")
-					gitutil.GitRun(dir, "diff", "--name-only", "--diff-filter=U")
-					fmt.Printf("  To resolve : cd %s && fix conflicts, then: git add . && git stash drop\n", dir)
-					fmt.Printf("  To abandon : cd %s && git checkout . && git stash drop\n", dir)
-				}
-			}
-		} else {
-			if ui.PromptYN("Do you want to force pull and discard all changes? This cannot be undone.") {
-				gitutil.GitRun(dir, "reset", "--hard", "origin/"+branchName)
-				fmt.Printf("%s: Force pulled branch %s.\n", ui.Cyan(label), branchName)
-			} else {
-				fmt.Printf("%s: Operation cancelled.\n", ui.Cyan(label))
-			}
-		}
-	}
-	fmt.Println()
+type pullState struct {
+	dir   string
+	label string
+	// "ok", "conflict"
+	status        string
+	conflictFiles []string
 }
 
-func PullForce(dir, branchName string) {
-	cur := repo.CurrentBranch(dir)
-	if branchName == "" {
-		branchName = cur
+// PullAll runs the three-phase cascade across all dirs, then handles conflicts as a group.
+func PullAll(dirs []string, branchName string) {
+	states := make([]pullState, len(dirs))
+	var wg sync.WaitGroup
+	for i, dir := range dirs {
+		wg.Add(1)
+		go func(i int, dir string) {
+			defer wg.Done()
+			states[i] = cascade(dir, branchName)
+		}(i, dir)
 	}
-	label := repo.Label(dir)
-	fmt.Printf("%s: Force pulling branch %s.\n", ui.Cyan(label), branchName)
+	wg.Wait()
 
-	gitutil.GitRun(dir, "fetch", "--all")
-	// After fetch, use local remote-tracking refs — no need for a live ls-remote call.
-	if cur != branchName {
-		if repo.BranchExistsLocal(dir, branchName) || repo.BranchExistsRemoteLocal(dir, branchName) {
-			gitutil.GitRun(dir, "checkout", "-f", branchName)
+	var conflicts []pullState
+	for _, s := range states {
+		if s.status == "conflict" {
+			conflicts = append(conflicts, s)
 		}
 	}
-	gitutil.GitRun(dir, "reset", "--hard", "origin/"+branchName)
+	if len(conflicts) > 0 {
+		resolveConflicts(conflicts, branchName)
+	}
+}
 
-	fmt.Printf("%s: Force pulled branch %s.\n", ui.Cyan(label), branchName)
+// PullRebase runs git pull --rebase on each dir concurrently; no cascade.
+func PullRebase(dirs []string, branchName string) {
+	var wg sync.WaitGroup
+	for _, dir := range dirs {
+		wg.Add(1)
+		go func(dir string) {
+			defer wg.Done()
+			label := repo.Label(dir)
+			branch := effectiveBranch(dir, branchName)
+			args := []string{"pull", "--rebase"}
+			if branch != "" {
+				args = append(args, "origin", branch)
+			}
+			if err := gitutil.GitRun(dir, args...); err != nil {
+				ui.LockedPrint(func() {
+					ui.Errorf("%s: pull --rebase failed\n", ui.Cyan(label))
+				})
+			}
+		}(dir)
+	}
+	wg.Wait()
+}
+
+func cascade(dir, branchName string) pullState {
+	label := repo.Label(dir)
+	branch := effectiveBranch(dir, branchName)
+
+	args := []string{"pull", "--ff-only"}
+	if branch != "" {
+		args = append(args, "origin", branch)
+	}
+
+	say := func(msg string) {
+		ui.LockedPrint(func() { fmt.Printf("%s: %s\n", ui.Cyan(label), msg) })
+	}
+
+	// Phase 1: ff-only
+	if gitutil.GitOK(dir, args...) {
+		say("pulled (ff-only)")
+		return pullState{dir: dir, label: label, status: "ok"}
+	}
+
+	// Phase 2: stash → pull --ff-only → stash pop.
+	// `git stash push` returns exit 0 even on a clean tree — detect the no-op
+	// via stdout so a later `stash pop` doesn't pop an unrelated previous stash.
+	say("→ ff-only failed, stashing changes...")
+	stashOut, stashErr := gitutil.Git(dir, "stash", "push")
+	stashed := stashErr == nil && !strings.Contains(stashOut, "No local changes")
+	if gitutil.GitOK(dir, args...) {
+		if stashed {
+			if gitutil.GitOK(dir, "stash", "pop") {
+				say("pulled (stash+ff-only+pop)")
+				return pullState{dir: dir, label: label, status: "ok"}
+			}
+			// stash pop conflict
+			files := conflictFiles(dir)
+			say("conflict after pull")
+			return pullState{dir: dir, label: label, status: "conflict", conflictFiles: files}
+		}
+		say("pulled (ff-only after stash)")
+		return pullState{dir: dir, label: label, status: "ok"}
+	}
+	// Still can't pull — unstash and mark conflict
+	if stashed {
+		gitutil.GitOK(dir, "stash", "pop")
+	}
+	say("conflict after pull")
+	return pullState{dir: dir, label: label, status: "conflict", conflictFiles: conflictFiles(dir)}
+}
+
+func resolveConflicts(conflicts []pullState, branchName string) {
+	for _, c := range conflicts {
+		fmt.Printf("%s: conflict after pull\n", c.label)
+	}
 	fmt.Println()
+	fmt.Println("All conflicted repos:")
+	choice := ui.PromptMenu([]string{
+		"reset --hard (discard local changes)",
+		"merge",
+		"rebase",
+		"skip all",
+	})
+
+	switch choice {
+	case 1: // reset --hard
+		for _, c := range conflicts {
+			branch := effectiveBranch(c.dir, branchName)
+			target := "origin/" + branch
+			if branch == "" {
+				target = "HEAD"
+			}
+			if err := gitutil.GitRun(c.dir, "reset", "--hard", target); err != nil {
+				ui.Errorf("%s: reset --hard failed\n", ui.Cyan(c.label))
+				continue
+			}
+			fmt.Printf("%s: reset --hard to %s\n", ui.Cyan(c.label), target)
+		}
+	case 2, 3: // merge or rebase
+		verb := "merge"
+		continueCmd := "git merge --continue"
+		if choice == 3 {
+			verb = "rebase"
+			continueCmd = "git rebase --continue"
+		}
+		for _, c := range conflicts {
+			branch := effectiveBranch(c.dir, branchName)
+			var err error
+			if choice == 2 {
+				err = gitutil.GitRun(c.dir, "merge", "origin/"+branch)
+			} else {
+				err = gitutil.GitRun(c.dir, "rebase", "origin/"+branch)
+			}
+			if err != nil {
+				fmt.Printf("%s: %s conflict\n", ui.Cyan(c.label), verb)
+				files := conflictFiles(c.dir)
+				for _, f := range files {
+					fmt.Printf("  M %s\n", f)
+				}
+				fmt.Printf("  → resolve manually, then run: %s\n", continueCmd)
+			}
+		}
+	case 4: // skip all
+		fmt.Println("Skipped all conflicted repos.")
+	}
+}
+
+func effectiveBranch(dir, branchName string) string {
+	if branchName != "" {
+		return branchName
+	}
+	return repo.CurrentBranch(dir)
+}
+
+func conflictFiles(dir string) []string {
+	out, _ := gitutil.Git(dir, "status", "--porcelain")
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		if len(line) < 3 {
+			continue
+		}
+		x, y := line[0], line[1]
+		if x == 'U' || y == 'U' || (x == 'A' && y == 'A') || (x == 'D' && y == 'D') {
+			files = append(files, strings.TrimSpace(line[3:]))
+		}
+	}
+	return files
 }

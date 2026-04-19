@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 
 _gitmulti_complete() {
-  local cur prev
-  cur="${COMP_WORDS[COMP_CWORD]}"
-  prev="${COMP_WORDS[COMP_CWORD-1]}"
-  COMPREPLY=( $(gitmulti __complete "$prev" "$cur" 2>/dev/null) )
+  local IFS=$'\n'
+  COMPREPLY=( $(gitmulti __complete "${COMP_WORDS[@]:1}" 2>/dev/null) )
 }
 
 if [[ -n "$ZSH_VERSION" ]]; then

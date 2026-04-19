@@ -1,6 +1,7 @@
 package branch
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"sync"
@@ -10,6 +11,51 @@ import (
 	"gitmulti/internal/ui"
 	"gitmulti/internal/util"
 )
+
+// isModifiedStatus reports whether a porcelain XY status code represents a
+// relevant change (added, modified, deleted, renamed or copied in either the
+// index or the worktree).
+func isModifiedStatus(x, y byte) bool {
+	return isChangeCode(x) || isChangeCode(y)
+}
+
+func isChangeCode(c byte) bool {
+	switch c {
+	case 'A', 'M', 'D', 'R', 'C':
+		return true
+	}
+	return false
+}
+
+// parsePorcelainZ parses `git status --porcelain -z` output into paths.
+// The -z format uses NUL separators and handles filenames with whitespace correctly.
+// Rename/copy entries are followed by an extra NUL-delimited origin path which we skip.
+func parsePorcelainZ(data []byte) []string {
+	var paths []string
+	i := 0
+	for i < len(data) {
+		end := bytes.IndexByte(data[i:], 0)
+		if end < 0 {
+			break
+		}
+		entry := data[i : i+end]
+		i += end + 1
+		if len(entry) < 3 {
+			continue
+		}
+		x, y := entry[0], entry[1]
+		path := string(entry[3:])
+		if x == 'R' || x == 'C' {
+			if end2 := bytes.IndexByte(data[i:], 0); end2 >= 0 {
+				i += end2 + 1
+			}
+		}
+		if isModifiedStatus(x, y) {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
 
 func Switch(dir, branch string) {
 	label := repo.Label(dir)
@@ -66,19 +112,23 @@ func SwitchForceQuiet(dir, branch string) { switchForce(dir, branch, true, true)
 func Find(dir, keyword string) {
 	label := repo.Label(dir)
 	if repo.BranchExistsLocal(dir, keyword) {
-		fmt.Printf("%s\n", ui.Green("Branch found in "+label))
+		ui.LockedPrint(func() {
+			fmt.Printf("%s\n", ui.Green("Branch found in "+label))
+		})
 		return
 	}
 	out, _ := gitutil.Git(dir, "branch", "-a", "-r", "--list", "*"+keyword+"*")
 	lines := util.NonEmpty(strings.Split(out, "\n"))
-	if len(lines) > 0 {
-		fmt.Printf("%s: Exact branch not found, similar branches:\n", ui.Red(label))
-		for _, l := range lines {
-			fmt.Println(strings.TrimSpace(strings.TrimPrefix(l, "*")))
+	ui.LockedPrint(func() {
+		if len(lines) > 0 {
+			fmt.Printf("%s: Exact branch not found, similar branches:\n", ui.Red(label))
+			for _, l := range lines {
+				fmt.Println(strings.TrimSpace(strings.TrimPrefix(l, "*")))
+			}
+		} else {
+			fmt.Printf("%s: Exact branch not found.\n", ui.Red(label))
 		}
-	} else {
-		fmt.Printf("%s: Exact branch not found.\n", ui.Red(label))
-	}
+	})
 }
 
 func ListAllNames(root, keyword string) []string {
@@ -131,14 +181,8 @@ func ListAll(root, keyword string) {
 func CreateIfModified(dir, branch string) {
 	label := repo.Label(dir)
 
-	out, _ := gitutil.Git(dir, "status", "--porcelain")
-	var modified []string
-	for _, line := range strings.Split(out, "\n") {
-		if len(line) >= 2 && (line[0] == 'A' || line[0] == 'M' || line[0] == 'D' ||
-			line[1] == 'A' || line[1] == 'M' || line[1] == 'D') {
-			modified = append(modified, strings.TrimSpace(line[3:]))
-		}
-	}
+	out, _ := gitutil.GitBytes(dir, "status", "--porcelain=v1", "-z")
+	modified := parsePorcelainZ(out)
 
 	if len(modified) == 0 {
 		fmt.Printf("%s: No uncommitted changes. No need to create a new branch.\n", label)
@@ -160,13 +204,13 @@ func CreateIfModified(dir, branch string) {
 	}
 
 	if repo.BranchExistsLocal(dir, branch) {
-		fmt.Printf("%s: Error: branch %q already exists.\n", label, branch)
+		ui.Errorf("%s: Error: branch %q already exists.\n", label, branch)
 		return
 	}
 
 	fmt.Printf("%s: Uncommitted changes detected. Creating branch %s.\n", label, branch)
 	if err := gitutil.GitRun(dir, "checkout", "-b", branch); err != nil {
-		fmt.Printf("%s: Failed to create branch %s.\n", label, branch)
+		ui.Errorf("%s: Failed to create branch %s.\n", label, branch)
 	} else {
 		fmt.Printf("%s: Switched to new branch %s.\n", label, branch)
 	}

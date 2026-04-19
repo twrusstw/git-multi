@@ -23,6 +23,7 @@ func TestBranchName(t *testing.T) {
 		{"semicolon", "main;rm -rf", true},
 		{"backtick", "main`whoami`", true},
 		{"dollar", "main$HOME", true},
+		{"leading dash", "-foo", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -45,6 +46,7 @@ func TestKeyword(t *testing.T) {
 		{"with dot", "v1.2", false},
 		{"space injection", "hotfix; rm -rf /", true},
 		{"pipe", "hotfix|cat /etc/passwd", true},
+		{"leading dash", "-rf", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

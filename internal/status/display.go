@@ -1,7 +1,10 @@
 package status
 
 import (
+	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -22,54 +25,83 @@ type repoStatus struct {
 }
 
 func collectStatus(dir string) repoStatus {
-	label := repo.Label(dir)
-	branchName := repo.CurrentBranch(dir)
+	// A single `status --branch --porcelain=v2` call yields branch name,
+	// upstream ahead/behind counts, and file-state counters — replacing three
+	// previous git invocations (rev-parse, rev-list, status --porcelain).
+	out, _ := gitutil.GitBytes(dir, "status", "--branch", "--porcelain=v2")
+	s := parseStatusV2(out)
+	s.label = repo.Label(dir)
+	s.groupName = extractOwner(readOriginURL(dir))
+	return s
+}
 
-	var pullCount, pushCount string
-	remoteBranch, err := gitutil.Git(dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-	if err == nil && remoteBranch != "" {
-		counts, _ := gitutil.Git(dir, "rev-list", "--count", "--left-right", "HEAD..."+remoteBranch)
-		parts := strings.SplitN(counts, "\t", 2)
-		if len(parts) == 2 {
-			pushCount = parts[0]
-			pullCount = parts[1]
-		}
-	} else {
-		pullCount = "N/A"
-		pushCount = "N/A"
-	}
-
-	statusOut, _ := gitutil.Git(dir, "status", "--porcelain")
-	var untracked, unstaged, staged int
-	for _, line := range strings.Split(statusOut, "\n") {
-		if len(line) < 2 {
+// parseStatusV2 parses `git status --branch --porcelain=v2` output.
+func parseStatusV2(data []byte) repoStatus {
+	s := repoStatus{pullCount: "N/A", pushCount: "N/A"}
+	for _, line := range bytes.Split(data, []byte{'\n'}) {
+		if len(line) == 0 {
 			continue
 		}
-		x, y := line[0], line[1]
-		if x == '?' && y == '?' {
-			untracked++
-		}
-		if y == 'M' || y == 'D' {
-			unstaged++
-		}
-		if x == 'M' || x == 'A' || x == 'D' || x == 'R' || x == 'C' {
-			staged++
+		switch {
+		case bytes.HasPrefix(line, []byte("# branch.head ")):
+			head := string(line[len("# branch.head "):])
+			if head != "(detached)" {
+				s.branchName = head
+			}
+		case bytes.HasPrefix(line, []byte("# branch.ab ")):
+			fields := strings.Fields(string(line[len("# branch.ab "):]))
+			if len(fields) == 2 {
+				s.pushCount = strings.TrimPrefix(fields[0], "+")
+				s.pullCount = strings.TrimPrefix(fields[1], "-")
+			}
+		case line[0] == '1' || line[0] == '2':
+			if len(line) >= 4 {
+				countXY(line[2], line[3], &s)
+			}
+		case line[0] == '?':
+			s.untracked++
 		}
 	}
+	return s
+}
 
-	remoteURL, _ := gitutil.Git(dir, "remote", "get-url", "origin")
-	groupName := extractOwner(remoteURL)
-
-	return repoStatus{
-		label:      label,
-		groupName:  groupName,
-		branchName: branchName,
-		pullCount:  pullCount,
-		pushCount:  pushCount,
-		untracked:  untracked,
-		unstaged:   unstaged,
-		staged:     staged,
+func countXY(x, y byte, s *repoStatus) {
+	if y == 'M' || y == 'D' {
+		s.unstaged++
 	}
+	switch x {
+	case 'M', 'A', 'D', 'R', 'C':
+		s.staged++
+	}
+}
+
+// readOriginURL reads the origin remote URL directly from .git/config, avoiding
+// a git fork in the common case. Falls back to `git remote get-url` when .git
+// is a gitfile (worktrees, submodules) or config is unparseable.
+func readOriginURL(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, ".git", "config"))
+	if err != nil {
+		out, _ := gitutil.Git(dir, "remote", "get-url", "origin")
+		return out
+	}
+	inOrigin := false
+	for _, line := range strings.Split(string(data), "\n") {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, "[") {
+			inOrigin = trim == `[remote "origin"]`
+			continue
+		}
+		if !inOrigin {
+			continue
+		}
+		if rest, ok := strings.CutPrefix(trim, "url"); ok {
+			rest = strings.TrimSpace(rest)
+			if val, ok := strings.CutPrefix(rest, "="); ok {
+				return strings.TrimSpace(val)
+			}
+		}
+	}
+	return ""
 }
 
 func printStatus(s repoStatus, printHeader bool) {
@@ -112,7 +144,6 @@ func ShowCurrent(dir string, printHeader bool) {
 // Handles both HTTPS (https://host/owner/repo) and SSH (git@host:owner/repo) forms.
 func extractOwner(remoteURL string) string {
 	remoteURL = strings.TrimSuffix(remoteURL, ".git")
-	// SSH: git@github.com:owner/repo — distinguished from HTTPS by absence of "://"
 	if !strings.Contains(remoteURL, "://") {
 		if idx := strings.Index(remoteURL, ":"); idx != -1 {
 			parts := strings.Split(remoteURL[idx+1:], "/")
@@ -121,7 +152,6 @@ func extractOwner(remoteURL string) string {
 			}
 		}
 	}
-	// HTTPS: https://github.com/owner/repo
 	parts := strings.Split(remoteURL, "/")
 	if len(parts) >= 2 {
 		return parts[len(parts)-2]
@@ -132,11 +162,13 @@ func extractOwner(remoteURL string) string {
 func ShowStatus(dir string) {
 	label := repo.Label(dir)
 	out, _ := gitutil.Git(dir, "status")
-	if strings.Contains(out, "nothing to commit") {
-		fmt.Printf("%s: No changes to show.\n", ui.Cyan(label))
-	} else {
-		fmt.Printf("%s:\n%s\n", ui.Cyan(label), out)
-	}
+	ui.LockedPrint(func() {
+		if strings.Contains(out, "nothing to commit") {
+			fmt.Printf("%s: No changes to show.\n", ui.Cyan(label))
+		} else {
+			fmt.Printf("%s:\n%s\n", ui.Cyan(label), out)
+		}
+	})
 }
 
 // DiscardChangesMulti shows a pre-flight summary of all repos with changes,
