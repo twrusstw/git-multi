@@ -4,18 +4,18 @@ import (
 	"os"
 	"strings"
 
-	"gitmulti/internal/cmd"
+	"gitmulti/internal/command"
 	"gitmulti/internal/completion"
 	"gitmulti/internal/validate"
 )
 
-type pullCmd struct{}
+func Cmd() *command.Command {
+	return &command.Command{Run: run, Complete: complete}
+}
 
-func Cmd() cmd.Command { return pullCmd{} }
-
-func (pullCmd) Run(root string, repos []string, args []string) error {
+func run(root string, repos []string, args []string) error {
 	rebase := len(args) > 0 && args[0] == "--rebase"
-	branchName := cmd.ArgOrEmpty(args)
+	branchName := command.ArgOrEmpty(args)
 	if err := validate.BranchName(branchName); err != nil {
 		return err
 	}
@@ -27,7 +27,7 @@ func (pullCmd) Run(root string, repos []string, args []string) error {
 	return nil
 }
 
-func (pullCmd) Complete(args []string) []string {
+func complete(args []string) []string {
 	cur := ""
 	if len(args) > 0 {
 		cur = args[len(args)-1]
