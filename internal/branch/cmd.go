@@ -6,18 +6,18 @@ import (
 	"slices"
 	"strings"
 
-	"gitmulti/internal/cmd"
+	"gitmulti/internal/command"
 	"gitmulti/internal/status"
 	"gitmulti/internal/validate"
 )
 
 // ---- switch subcommand ----
 
-type switchCmd struct{}
+func SwitchCmd() *command.Command {
+	return &command.Command{Run: switchRun, Complete: switchComplete}
+}
 
-func SwitchCmd() cmd.Command { return switchCmd{} }
-
-func (switchCmd) Run(root string, repos []string, args []string) error {
+func switchRun(root string, repos []string, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("switch requires a branch name")
 	}
@@ -53,7 +53,7 @@ func (switchCmd) Run(root string, repos []string, args []string) error {
 	return nil
 }
 
-func (switchCmd) Complete(args []string) []string {
+func switchComplete(args []string) []string {
 	cur := ""
 	if len(args) > 0 {
 		cur = args[len(args)-1]
@@ -87,18 +87,18 @@ func (switchCmd) Complete(args []string) []string {
 
 // ---- branch subcommand ----
 
-type branchCmd struct{}
+func BranchCmd() *command.Command {
+	return &command.Command{Run: branchRun, Complete: branchComplete}
+}
 
-func BranchCmd() cmd.Command { return branchCmd{} }
-
-func (branchCmd) Run(root string, repos []string, args []string) error {
+func branchRun(root string, repos []string, args []string) error {
 	if len(args) == 0 {
 		status.ShowCurrentAll(repos)
 		return nil
 	}
 	switch args[0] {
 	case "-a":
-		keyword := cmd.ArgOrEmpty(args[1:])
+		keyword := command.ArgOrEmpty(args[1:])
 		if err := validate.Keyword(keyword); err != nil {
 			return err
 		}
@@ -133,7 +133,7 @@ func (branchCmd) Run(root string, repos []string, args []string) error {
 	return nil
 }
 
-func (branchCmd) Complete(args []string) []string {
+func branchComplete(args []string) []string {
 	cur := ""
 	if len(args) > 0 {
 		cur = args[len(args)-1]
