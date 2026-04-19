@@ -169,6 +169,42 @@ func ListAll(root, keyword string) {
 	}
 }
 
+func ListAllGrouped(root, keyword string) {
+	args := []string{"branch", "--all"}
+	if keyword != "" {
+		args = append(args, "--list", "*"+keyword+"*")
+	}
+
+	repos := repo.FindGitRepos(root)
+	type entry struct {
+		label    string
+		branches []string
+	}
+	results := util.ParallelMap(repos, 0, func(r string) entry {
+		out, err := gitutil.Git(r, args...)
+		if err != nil {
+			return entry{}
+		}
+		var names []string
+		for _, line := range strings.Split(out, "\n") {
+			if name := util.NormaliseBranchName(line); name != "" {
+				names = append(names, name)
+			}
+		}
+		return entry{label: repo.Label(r), branches: names}
+	})
+
+	for _, e := range results {
+		if len(e.branches) == 0 {
+			continue
+		}
+		fmt.Println(ui.Cyan(e.label))
+		for _, b := range e.branches {
+			fmt.Println("  " + b)
+		}
+	}
+}
+
 func CreateIfModified(dir, branch string) {
 	label := repo.Label(dir)
 

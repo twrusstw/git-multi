@@ -103,6 +103,12 @@ func branchRun(root string, repos []string, args []string) error {
 			return err
 		}
 		ListAll(root, keyword)
+	case "-ag":
+		keyword := command.ArgOrEmpty(args[1:])
+		if err := validate.Keyword(keyword); err != nil {
+			return err
+		}
+		ListAllGrouped(root, keyword)
 	case "--find":
 		if len(args) < 2 {
 			return fmt.Errorf("branch --find requires a keyword")
@@ -142,7 +148,7 @@ func branchComplete(args []string) []string {
 
 	if len(args) == 1 {
 		var out []string
-		for _, flag := range []string{"-a", "--find", "-d", "-D", "-m"} {
+		for _, flag := range []string{"-a", "-ag", "--find", "-d", "-D", "-m"} {
 			if strings.HasPrefix(flag, cur) {
 				out = append(out, flag)
 			}
