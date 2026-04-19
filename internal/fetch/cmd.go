@@ -1,14 +1,14 @@
 package fetch
 
-import "gitmulti/internal/cmd"
+import "gitmulti/internal/command"
 
-type fetchCmd struct{}
+func Cmd() *command.Command {
+	return &command.Command{Run: run, Complete: complete}
+}
 
-func Cmd() cmd.Command { return fetchCmd{} }
-
-func (fetchCmd) Run(root string, repos []string, args []string) error {
+func run(root string, repos []string, args []string) error {
 	FetchAll(repos)
 	return nil
 }
 
-func (fetchCmd) Complete(args []string) []string { return nil }
+func complete(args []string) []string { return nil }
