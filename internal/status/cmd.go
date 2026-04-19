@@ -1,27 +1,27 @@
 package status
 
-import "gitmulti/internal/cmd"
+import "gitmulti/internal/command"
 
-type statusCmd struct{}
+func StatusCmd() *command.Command {
+	return &command.Command{Run: statusRun, Complete: statusComplete}
+}
 
-func StatusCmd() cmd.Command { return statusCmd{} }
-
-func (statusCmd) Run(root string, repos []string, args []string) error {
+func statusRun(root string, repos []string, args []string) error {
 	for _, r := range repos {
 		ShowStatus(r)
 	}
 	return nil
 }
 
-func (statusCmd) Complete(args []string) []string { return nil }
+func statusComplete(args []string) []string { return nil }
 
-type discardCmd struct{}
+func DiscardCmd() *command.Command {
+	return &command.Command{Run: discardRun, Complete: discardComplete}
+}
 
-func DiscardCmd() cmd.Command { return discardCmd{} }
-
-func (discardCmd) Run(root string, repos []string, args []string) error {
+func discardRun(root string, repos []string, args []string) error {
 	DiscardChangesMulti(repos)
 	return nil
 }
 
-func (discardCmd) Complete(args []string) []string { return nil }
+func discardComplete(args []string) []string { return nil }
