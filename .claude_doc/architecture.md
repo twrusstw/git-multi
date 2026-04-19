@@ -3,10 +3,10 @@
 ## Package structure
 
 ```
-main.go               — registry map[string]cmd.Command + thin dispatcher (~163 lines);
+main.go               — registry map[string]*command.Command + thin dispatcher (~163 lines);
                         parses -C <dir>, discovers repos, dispatches Run()/Complete()
 internal/
-  cmd/                — Command interface (Run + Complete) + ArgOrEmpty helper
+  command/            — Command struct with function fields (Run + Complete) + ArgOrEmpty helper
   branch/             — Switch, SwitchForce, CreateIfModified, Find, ListAll,
                         Delete, ForceDelete, Rename; skip-file rules (skip.go);
                         cmd.go: BranchCmd(), SwitchCmd()
