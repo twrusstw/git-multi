@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"strings"
 
-	"gitmulti/internal/cmd"
+	"gitmulti/internal/command"
 )
 
-type stashCmd struct{}
+func Cmd() *command.Command {
+	return &command.Command{Run: run, Complete: complete}
+}
 
-func Cmd() cmd.Command { return stashCmd{} }
-
-func (stashCmd) Run(root string, repos []string, args []string) error {
+func run(root string, repos []string, args []string) error {
 	if len(args) == 0 {
 		Stash(repos)
 		return nil
@@ -29,7 +29,7 @@ func (stashCmd) Run(root string, repos []string, args []string) error {
 	return nil
 }
 
-func (stashCmd) Complete(args []string) []string {
+func complete(args []string) []string {
 	cur := ""
 	if len(args) > 0 {
 		cur = args[len(args)-1]
