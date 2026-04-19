@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"gitmulti/internal/branch"
-	"gitmulti/internal/cmd"
+	"gitmulti/internal/command"
 	"gitmulti/internal/completion"
 	"gitmulti/internal/fetch"
 	"gitmulti/internal/pull"
@@ -19,7 +19,7 @@ import (
 	"gitmulti/internal/ui"
 )
 
-var registry = map[string]cmd.Command{
+var registry = map[string]*command.Command{
 	"pull":    pull.Cmd(),
 	"push":    push.Cmd(),
 	"fetch":   fetch.Cmd(),
