@@ -27,7 +27,7 @@ gitmulti <subcommand> [args] [-C directory]
 | `fetch` | Fetch then show ahead/behind/dirty table |
 | `switch <branch>` | Switch branch (stash/discard/cancel on dirty repos) |
 | `switch -s <branch>` | Stash and reapply changes before switch |
-| `switch -d <branch>` | Discard changes before switch |
+| `switch -d <branch>` | Discard tracked and untracked changes before switch |
 | `branch` | Show ahead/behind/dirty status table |
 | `branch -a [keyword]` | List all unique branches (optional filter) |
 | `branch -ag [keyword]` | List branches grouped by repository |

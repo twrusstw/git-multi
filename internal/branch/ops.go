@@ -17,6 +17,7 @@ const (
 	switchModePrompt switchMode = iota
 	switchModeStash
 	switchModeDiscard
+	switchModeCancel
 )
 
 // isModifiedStatus reports whether a porcelain XY status code represents a
@@ -109,8 +110,10 @@ func switchWithMode(dir, branch string, mode switchMode) {
 			stashAndSwitch(dir, label, branch)
 		case switchModeDiscard:
 			discardAndSwitch(dir, label, branch)
-		default:
+		case switchModeCancel:
 			fmt.Printf("%s: Cancelled.\n", ui.Cyan(label))
+		default:
+			ui.Errorf("%s: invalid switch mode\n", ui.Cyan(label))
 		}
 		return
 	}
@@ -131,7 +134,7 @@ func promptSwitchMode(branch string) switchMode {
 	case 2:
 		return switchModeDiscard
 	default:
-		return switchModePrompt
+		return switchModeCancel
 	}
 }
 
@@ -152,7 +155,7 @@ func stashAndSwitch(dir, label, branch string) {
 		return
 	}
 
-	if _, err := gitutil.Git(dir, "stash", "pop"); err != nil {
+	if _, err := gitutil.GitCombined(dir, "stash", "pop"); err != nil {
 		printSwitchReapplyConflict(label, dir)
 	}
 }

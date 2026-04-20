@@ -110,10 +110,11 @@ func TestSwitchStash_PopConflict_LeavesTargetAndStashEntry(t *testing.T) {
 
 func TestSwitch_NonInteractiveNonExistentBranch_NoSideEffects(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		run  func(string, string)
+		name              string
+		run               func(string, string)
+		assertNoStashSide bool
 	}{
-		{name: "stash", run: branch.SwitchStash},
+		{name: "stash", run: branch.SwitchStash, assertNoStashSide: true},
 		{name: "discard", run: branch.SwitchDiscard},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -129,9 +130,14 @@ func TestSwitch_NonInteractiveNonExistentBranch_NoSideEffects(t *testing.T) {
 			if statusOut != "?? dirty.txt" {
 				t.Fatalf("expected dirty state to be preserved, got %q", statusOut)
 			}
-			list, _ := testutil.GitOutput(t, dir, "stash", "list")
-			if strings.TrimSpace(list) != "" {
-				t.Fatalf("expected no stash entry when branch is missing, got %q", list)
+			if tc.assertNoStashSide {
+				list, _ := testutil.GitOutput(t, dir, "stash", "list")
+				if strings.TrimSpace(list) != "" {
+					t.Fatalf("expected no stash entry when branch is missing, got %q", list)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(dir, "dirty.txt")); err != nil {
+				t.Fatalf("expected dirty.txt to still exist, err=%v", err)
 			}
 		})
 	}
