@@ -12,21 +12,21 @@ import (
 
 // ── Phase 1: ff-only ──────────────────────────────────────────────────────────
 
-func TestPullAll_UpToDate(t *testing.T) {
+func TestAll_UpToDate(t *testing.T) {
 	bare := testutil.InitBareRepo(t)
 	src := testutil.InitRepo(t)
 	testutil.GitMustRun(t, src, "remote", "add", "origin", bare)
 	testutil.GitMustRun(t, src, "push", "-u", "origin", "main")
 
 	local := testutil.CloneRepo(t, bare)
-	pull.PullAll([]string{local}, "main")
+	pull.All([]string{local}, "main")
 
 	if repo.CurrentBranch(local) != "main" {
 		t.Errorf("expected main, got %s", repo.CurrentBranch(local))
 	}
 }
 
-func TestPullAll_WithRemoteCommit(t *testing.T) {
+func TestAll_WithRemoteCommit(t *testing.T) {
 	bare := testutil.InitBareRepo(t)
 	src := testutil.InitRepo(t)
 	testutil.GitMustRun(t, src, "remote", "add", "origin", bare)
@@ -39,7 +39,7 @@ func TestPullAll_WithRemoteCommit(t *testing.T) {
 	testutil.GitMustRun(t, src, "commit", "-m", "add new.txt")
 	testutil.GitMustRun(t, src, "push")
 
-	pull.PullAll([]string{local}, "main")
+	pull.All([]string{local}, "main")
 
 	out, err := testutil.GitOutput(t, local, "log", "--oneline", "-2")
 	if err != nil || len(out) == 0 {
@@ -49,10 +49,10 @@ func TestPullAll_WithRemoteCommit(t *testing.T) {
 
 // ── Phase 2: stash → ff-only → pop ───────────────────────────────────────────
 
-// TestPullAll_StashFallback_Success: local has unstaged changes to one region
+// TestAll_StashFallback_Success: local has unstaged changes to one region
 // of file.txt, remote changed a different region. ff-only refuses due to file-level
 // dirty check, but stash → ff-only → pop auto-merges successfully.
-func TestPullAll_StashFallback_Success(t *testing.T) {
+func TestAll_StashFallback_Success(t *testing.T) {
 	bare := testutil.InitBareRepo(t)
 	src := testutil.InitRepo(t)
 
@@ -82,7 +82,7 @@ func TestPullAll_StashFallback_Success(t *testing.T) {
 	ui.StdinReader = testutil.NewStringReader("4\n")
 	defer func() { ui.StdinReader = orig }()
 
-	pull.PullAll([]string{local}, "main")
+	pull.All([]string{local}, "main")
 
 	// Remote's line5 change must be present after pull.
 	content, err := testutil.GitOutput(t, local, "show", "HEAD:file.txt")
@@ -94,10 +94,10 @@ func TestPullAll_StashFallback_Success(t *testing.T) {
 	}
 }
 
-// TestPullAll_StashFallback_PopConflict: local and remote both modify the same
+// TestAll_StashFallback_PopConflict: local and remote both modify the same
 // line. ff-only refuses, stash + ff-only succeeds, but stash pop conflicts →
 // cascade enters Phase 3 and the user chooses "skip all".
-func TestPullAll_StashFallback_PopConflict(t *testing.T) {
+func TestAll_StashFallback_PopConflict(t *testing.T) {
 	bare := testutil.InitBareRepo(t)
 	src := testutil.InitRepo(t)
 
@@ -124,7 +124,7 @@ func TestPullAll_StashFallback_PopConflict(t *testing.T) {
 	defer func() { ui.StdinReader = orig }()
 
 	// Should not panic; conflict is gracefully handled via the menu.
-	pull.PullAll([]string{local}, "main")
+	pull.All([]string{local}, "main")
 }
 
 // ── Phase 3: conflict menu ────────────────────────────────────────────────────
@@ -154,7 +154,7 @@ func divergedLocalRemote(t *testing.T) (local, bare string) {
 	return local, bare
 }
 
-func TestPullAll_Phase3_ResetHard(t *testing.T) {
+func TestAll_Phase3_ResetHard(t *testing.T) {
 	local, _ := divergedLocalRemote(t)
 
 	// Fetch first so origin/main is known.
@@ -164,7 +164,7 @@ func TestPullAll_Phase3_ResetHard(t *testing.T) {
 	ui.StdinReader = testutil.NewStringReader("1\n") // reset --hard
 	defer func() { ui.StdinReader = orig }()
 
-	pull.PullAll([]string{local}, "main")
+	pull.All([]string{local}, "main")
 
 	// After reset --hard, local should match origin/main (no local.txt).
 	out, _ := testutil.GitOutput(t, local, "show", "HEAD:local.txt")
@@ -177,7 +177,7 @@ func TestPullAll_Phase3_ResetHard(t *testing.T) {
 	}
 }
 
-func TestPullAll_Phase3_SkipAll(t *testing.T) {
+func TestAll_Phase3_SkipAll(t *testing.T) {
 	local, _ := divergedLocalRemote(t)
 	testutil.GitMustRun(t, local, "fetch", "origin")
 
@@ -187,7 +187,7 @@ func TestPullAll_Phase3_SkipAll(t *testing.T) {
 	ui.StdinReader = testutil.NewStringReader("4\n") // skip all
 	defer func() { ui.StdinReader = orig }()
 
-	pull.PullAll([]string{local}, "main")
+	pull.All([]string{local}, "main")
 
 	// HEAD unchanged — local commit preserved.
 	localHeadAfter, _ := testutil.GitOutput(t, local, "rev-parse", "HEAD")
@@ -196,7 +196,7 @@ func TestPullAll_Phase3_SkipAll(t *testing.T) {
 	}
 }
 
-func TestPullAll_Phase3_Merge(t *testing.T) {
+func TestAll_Phase3_Merge(t *testing.T) {
 	local, _ := divergedLocalRemote(t)
 	testutil.GitMustRun(t, local, "fetch", "origin")
 
@@ -205,10 +205,10 @@ func TestPullAll_Phase3_Merge(t *testing.T) {
 	defer func() { ui.StdinReader = orig }()
 
 	// Should not panic; merge may succeed (no content conflict).
-	pull.PullAll([]string{local}, "main")
+	pull.All([]string{local}, "main")
 }
 
-func TestPullAll_Phase3_Rebase(t *testing.T) {
+func TestAll_Phase3_Rebase(t *testing.T) {
 	local, _ := divergedLocalRemote(t)
 	testutil.GitMustRun(t, local, "fetch", "origin")
 
@@ -216,12 +216,12 @@ func TestPullAll_Phase3_Rebase(t *testing.T) {
 	ui.StdinReader = testutil.NewStringReader("3\n") // rebase
 	defer func() { ui.StdinReader = orig }()
 
-	pull.PullAll([]string{local}, "main")
+	pull.All([]string{local}, "main")
 }
 
 // ── pull --rebase ─────────────────────────────────────────────────────────────
 
-func TestPullRebase_WithRemoteCommit(t *testing.T) {
+func TestRebase_WithRemoteCommit(t *testing.T) {
 	bare := testutil.InitBareRepo(t)
 	src := testutil.InitRepo(t)
 	testutil.GitMustRun(t, src, "remote", "add", "origin", bare)
@@ -234,7 +234,7 @@ func TestPullRebase_WithRemoteCommit(t *testing.T) {
 	testutil.GitMustRun(t, src, "commit", "-m", "remote commit")
 	testutil.GitMustRun(t, src, "push")
 
-	pull.PullRebase([]string{local}, "main")
+	pull.Rebase([]string{local}, "main")
 
 	out, err := testutil.GitOutput(t, local, "log", "--oneline", "-2")
 	if err != nil || len(out) == 0 {

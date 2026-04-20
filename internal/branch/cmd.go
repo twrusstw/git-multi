@@ -17,7 +17,7 @@ func SwitchCmd() *command.Command {
 	return &command.Command{Run: switchRun, Complete: switchComplete}
 }
 
-func switchRun(root string, repos []string, args []string) error {
+func switchRun(_ string, repos []string, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("switch requires a branch name")
 	}
@@ -87,7 +87,7 @@ func switchComplete(args []string) []string {
 
 // ---- branch subcommand ----
 
-func BranchCmd() *command.Command {
+func Cmd() *command.Command {
 	return &command.Command{Run: branchRun, Complete: branchComplete}
 }
 

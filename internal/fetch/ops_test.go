@@ -7,7 +7,7 @@ import (
 	"gitmulti/internal/testutil"
 )
 
-func TestFetchAll_NoPanic(t *testing.T) {
+func TestAll_NoPanic(t *testing.T) {
 	bare := testutil.InitBareRepo(t)
 	src := testutil.InitRepo(t)
 	testutil.GitMustRun(t, src, "remote", "add", "origin", bare)
@@ -16,12 +16,12 @@ func TestFetchAll_NoPanic(t *testing.T) {
 	local := testutil.CloneRepo(t, bare)
 
 	// Should not panic.
-	fetch.FetchAll([]string{local})
+	fetch.All([]string{local})
 }
 
-// TestFetchAll_UpdatesRemoteTrackingRef verifies that after FetchAll, the remote
+// TestAll_UpdatesRemoteTrackingRef verifies that after FetchAll, the remote
 // tracking ref reflects the new commit pushed to the remote.
-func TestFetchAll_UpdatesRemoteTrackingRef(t *testing.T) {
+func TestAll_UpdatesRemoteTrackingRef(t *testing.T) {
 	bare := testutil.InitBareRepo(t)
 	src := testutil.InitRepo(t)
 	testutil.GitMustRun(t, src, "remote", "add", "origin", bare)
@@ -37,22 +37,22 @@ func TestFetchAll_UpdatesRemoteTrackingRef(t *testing.T) {
 
 	remoteHeadBefore, _ := testutil.GitOutput(t, local, "rev-parse", "origin/main")
 
-	fetch.FetchAll([]string{local})
+	fetch.All([]string{local})
 
 	remoteHeadAfter, _ := testutil.GitOutput(t, local, "rev-parse", "origin/main")
 	if remoteHeadBefore == remoteHeadAfter {
-		t.Error("expected origin/main to be updated after FetchAll")
+		t.Error("expected origin/main to be updated after All")
 	}
 }
 
-// TestFetchAll_NoRemote verifies that FetchAll doesn't panic on a repo with no remote.
-func TestFetchAll_NoRemote(t *testing.T) {
+// TestAll_NoRemote verifies that FetchAll doesn't panic on a repo with no remote.
+func TestAll_NoRemote(t *testing.T) {
 	dir := testutil.InitRepo(t)
-	fetch.FetchAll([]string{dir})
+	fetch.All([]string{dir})
 }
 
-// TestFetchAll_MultipleRepos verifies multi-repo mode doesn't panic.
-func TestFetchAll_MultipleRepos(t *testing.T) {
+// TestAll_MultipleRepos verifies multi-repo mode doesn't panic.
+func TestAll_MultipleRepos(t *testing.T) {
 	bare := testutil.InitBareRepo(t)
 	src := testutil.InitRepo(t)
 	testutil.GitMustRun(t, src, "remote", "add", "origin", bare)
@@ -61,5 +61,5 @@ func TestFetchAll_MultipleRepos(t *testing.T) {
 	local1 := testutil.CloneRepo(t, bare)
 	local2 := testutil.CloneRepo(t, bare)
 
-	fetch.FetchAll([]string{local1, local2})
+	fetch.All([]string{local1, local2})
 }

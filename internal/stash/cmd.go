@@ -11,7 +11,7 @@ func Cmd() *command.Command {
 	return &command.Command{Run: run, Complete: complete}
 }
 
-func run(root string, repos []string, args []string) error {
+func run(_ string, repos []string, args []string) error {
 	if len(args) == 0 {
 		Stash(repos)
 		return nil

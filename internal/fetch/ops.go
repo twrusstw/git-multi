@@ -9,7 +9,7 @@ import (
 	"gitmulti/internal/util"
 )
 
-func FetchAll(dirs []string) {
+func All(dirs []string) {
 	results := util.ParallelMap(dirs, 0, fetchOne)
 
 	labelW, branchW := 10, 15

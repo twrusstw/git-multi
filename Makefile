@@ -9,10 +9,16 @@ SHELL_RC    = $(HOME)/$(if $(filter zsh,$(SHELL_NAME)),.zshrc,$(if $(filter bash
 # BSD (macOS) vs GNU sed in-place flag
 SED_INPLACE := $(shell sed --version 2>/dev/null | grep -q GNU && echo '-i' || echo "-i ''")
 
-.PHONY: build install uninstall completion
+.PHONY: build test lint install uninstall completion
 
 build:
 	go build -o $(BIN) .
+
+test:
+	go test ./...
+
+lint:
+	golangci-lint run ./...
 
 install: build
 	mkdir -p $(INST_DIR)

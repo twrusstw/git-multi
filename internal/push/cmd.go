@@ -13,7 +13,7 @@ func Cmd() *command.Command {
 	return &command.Command{Run: run, Complete: complete}
 }
 
-func run(root string, repos []string, args []string) error {
+func run(_ string, repos []string, args []string) error {
 	branchName := command.ArgOrEmpty(args)
 	if err := validate.BranchName(branchName); err != nil {
 		return err

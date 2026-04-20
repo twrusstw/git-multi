@@ -36,7 +36,7 @@ func TestSwitchComplete(t *testing.T) {
 }
 
 func TestBranchRunValidation(t *testing.T) {
-	c := branch.BranchCmd()
+	c := branch.Cmd()
 	if err := c.Run("", []string{}, []string{"--unknown"}); err == nil {
 		t.Error("expected error for unknown branch flag")
 	}
@@ -49,13 +49,13 @@ func TestBranchRunValidation(t *testing.T) {
 }
 
 func TestBranchComplete(t *testing.T) {
-	c := branch.BranchCmd()
+	c := branch.Cmd()
 	got := c.Complete([]string{"-"})
 	want := map[string]bool{"-a": true, "--find": true, "-d": true, "-D": true, "-m": true, "-n": true}
 	for _, s := range got {
 		delete(want, s)
 	}
 	if len(want) > 0 {
-		t.Errorf("BranchCmd.Complete([\"-\"]) missing flags: %v", want)
+		t.Errorf("Cmd.Complete([\"-\"]) missing flags: %v", want)
 	}
 }

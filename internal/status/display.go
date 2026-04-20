@@ -234,8 +234,14 @@ func DiscardChangesMulti(repos []string) {
 	}
 	for _, r := range dirty {
 		label := repo.Label(r.dir)
-		gitutil.GitRun(r.dir, "reset", "--hard", "HEAD")
-		gitutil.GitRun(r.dir, "clean", "-fd")
+		if err := gitutil.GitRun(r.dir, "reset", "--hard", "HEAD"); err != nil {
+			ui.Errorf("%s: reset failed: %v\n", label, err)
+			continue
+		}
+		if err := gitutil.GitRun(r.dir, "clean", "-fd"); err != nil {
+			ui.Errorf("%s: clean failed: %v\n", label, err)
+			continue
+		}
 		fmt.Printf("%s: Discarded.\n", ui.Cyan(label))
 	}
 }

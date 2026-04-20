@@ -13,16 +13,16 @@ func Cmd() *command.Command {
 	return &command.Command{Run: run, Complete: complete}
 }
 
-func run(root string, repos []string, args []string) error {
+func run(_ string, repos []string, args []string) error {
 	rebase := len(args) > 0 && args[0] == "--rebase"
 	branchName := command.ArgOrEmpty(args)
 	if err := validate.BranchName(branchName); err != nil {
 		return err
 	}
 	if rebase {
-		PullRebase(repos, branchName)
+		Rebase(repos, branchName)
 	} else {
-		PullAll(repos, branchName)
+		All(repos, branchName)
 	}
 	return nil
 }

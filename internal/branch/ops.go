@@ -105,7 +105,7 @@ func switchWithMode(dir, branch string, mode switchMode) {
 		if mode == switchModePrompt {
 			mode = promptSwitchMode(branch)
 		}
-		switch mode {
+		switch mode { //nolint:exhaustive // switchModePrompt is resolved above
 		case switchModeStash:
 			stashAndSwitch(dir, label, branch)
 		case switchModeDiscard:
@@ -119,7 +119,9 @@ func switchWithMode(dir, branch string, mode switchMode) {
 	}
 
 	fmt.Printf("%s: Switching to branch %s.\n", ui.Cyan(label), branch)
-	gitutil.GitRun(dir, "checkout", branch)
+	if err := gitutil.GitRun(dir, "checkout", branch); err != nil {
+		ui.Errorf("%s: checkout failed: %v\n", label, err)
+	}
 }
 
 func promptSwitchMode(branch string) switchMode {
@@ -172,7 +174,9 @@ func discardAndSwitch(dir, label, branch string) {
 	}
 
 	fmt.Printf("%s: Switching to branch %s.\n", ui.Cyan(label), branch)
-	gitutil.GitRun(dir, "checkout", branch)
+	if err := gitutil.GitRun(dir, "checkout", branch); err != nil {
+		ui.Errorf("%s: checkout failed: %v\n", label, err)
+	}
 }
 
 func printSwitchReapplyConflict(label, dir string) {

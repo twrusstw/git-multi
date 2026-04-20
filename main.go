@@ -24,8 +24,8 @@ var registry = map[string]*command.Command{
 	"push":    push.Cmd(),
 	"fetch":   fetch.Cmd(),
 	"switch":  branch.SwitchCmd(),
-	"branch":  branch.BranchCmd(),
-	"status":  status.StatusCmd(),
+	"branch":  branch.Cmd(),
+	"status":  status.Cmd(),
 	"stash":   stash.Cmd(),
 	"discard": status.DiscardCmd(),
 }

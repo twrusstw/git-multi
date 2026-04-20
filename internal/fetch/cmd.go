@@ -6,9 +6,9 @@ func Cmd() *command.Command {
 	return &command.Command{Run: run, Complete: complete}
 }
 
-func run(root string, repos []string, args []string) error {
-	FetchAll(repos)
+func run(_ string, repos []string, _ []string) error {
+	All(repos)
 	return nil
 }
 
-func complete(args []string) []string { return nil }
+func complete(_ []string) []string { return nil }

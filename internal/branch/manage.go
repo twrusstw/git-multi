@@ -162,8 +162,14 @@ func Rename(dirs []string, oldName, newName string) {
 				continue
 			}
 		}
-		gitutil.GitRun(r.dir, "push", "origin", "--delete", oldName)
-		gitutil.GitRun(r.dir, "push", "-u", "origin", newName)
+		if err := gitutil.GitRun(r.dir, "push", "origin", "--delete", oldName); err != nil {
+			ui.Errorf("%s: failed to delete remote branch: %v\n", r.label, err)
+			continue
+		}
+		if err := gitutil.GitRun(r.dir, "push", "-u", "origin", newName); err != nil {
+			ui.Errorf("%s: failed to push renamed branch: %v\n", r.label, err)
+			continue
+		}
 		fmt.Printf("%s: remote synced\n", ui.Cyan(r.label))
 	}
 }
@@ -175,4 +181,3 @@ func joinLabels(repos []repoWithBranch) string {
 	}
 	return strings.Join(names, ", ")
 }
-

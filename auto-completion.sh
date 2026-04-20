@@ -2,7 +2,7 @@
 
 _gitmulti_complete() {
   local IFS=$'\n'
-  COMPREPLY=( $(gitmulti __complete "${COMP_WORDS[@]:1}" 2>/dev/null) )
+  IFS=$'\n' read -r -d '' -a COMPREPLY < <(gitmulti __complete "${COMP_WORDS[@]:1}" 2>/dev/null; printf '\0')
 }
 
 if [[ -n "$ZSH_VERSION" ]]; then

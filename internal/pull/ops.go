@@ -18,8 +18,8 @@ type pullState struct {
 	conflictFiles []string
 }
 
-// PullAll runs the three-phase cascade across all dirs, then handles conflicts as a group.
-func PullAll(dirs []string, branchName string) {
+// All runs the three-phase cascade across all dirs, then handles conflicts as a group.
+func All(dirs []string, branchName string) {
 	states := util.ParallelMap(dirs, 0, func(dir string) pullState {
 		return cascade(dir, branchName)
 	})
@@ -35,14 +35,14 @@ func PullAll(dirs []string, branchName string) {
 	}
 }
 
-// PullRebase runs git pull --rebase on each dir concurrently; no cascade.
+// Rebase runs git pull --rebase on each dir concurrently; no cascade.
 // Output is buffered per-repo and flushed under printMu so parallel rebases
 // don't interleave their progress lines on the terminal.
 //
 // Tradeoff: no real-time progress — a slow rebase on a large repo shows
 // nothing until it finishes. If this becomes a UX problem, serialise the
 // loop instead of switching back to GitRun (which reintroduces interleaving).
-func PullRebase(dirs []string, branchName string) {
+func Rebase(dirs []string, branchName string) {
 	util.ParallelDo(dirs, 0, func(dir string) {
 		label := repo.Label(dir)
 		branch := effectiveBranch(dir, branchName)
