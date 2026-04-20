@@ -1,0 +1,9 @@
+#compdef gitmulti
+_gitmulti() {
+  local -a completions
+  while IFS= read -r line; do
+    completions+=("$line")
+  done < <(gitmulti __complete "${words[@]:1}" 2>/dev/null)
+  compadd -a completions
+}
+_gitmulti "$@"

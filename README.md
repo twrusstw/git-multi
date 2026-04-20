@@ -7,12 +7,11 @@ A Go CLI utility that executes Git commands across multiple repositories at once
 ```bash
 git clone https://github.com/twrusstw/git-multi.git
 cd git-multi
-chmod +x install.sh
-./install.sh
+make install
 exec zsh  # or exec bash
 ```
 
-The install script builds the binary, copies it to `/usr/local/bin/gitmulti`, and optionally sets up tab completion in your shell.
+`make install` builds the binary, copies it to `/usr/local/bin/gitmulti`, and writes the completion block directly into your detected shell RC file.
 
 ## Usage
 
@@ -87,11 +86,10 @@ gitmulti pull -C <TAB>     # list git repo directories
 ## Uninstall
 
 ```bash
-chmod +x uninstall.sh
-./uninstall.sh
+make uninstall
 ```
 
-Removes the binary, the install directory, and the completion entry from `~/.zshrc` and `~/.bashrc`.
+Removes the binary, any legacy completion install directory, and the completion entry from your shell RC files.
 
 ## License
 
