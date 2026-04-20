@@ -3,6 +3,7 @@ package branch_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gitmulti/internal/branch"
@@ -40,17 +41,99 @@ func TestSwitch_NonExistent(t *testing.T) {
 	}
 }
 
-func TestSwitchForce_WithStagedChanges(t *testing.T) {
+func TestSwitchStash_WithUntrackedChanges(t *testing.T) {
 	dir := testutil.InitRepo(t)
 	testutil.GitMustRun(t, dir, "checkout", "-b", "feature")
 	testutil.GitMustRun(t, dir, "checkout", "main")
 
-	testutil.WriteFile(t, dir, "dirty.txt", "change")
-	testutil.GitMustRun(t, dir, "add", "dirty.txt")
+	testutil.WriteFile(t, dir, "dirty.txt", "change\n")
 
-	branch.SwitchForce(dir, "feature")
+	branch.SwitchStash(dir, "feature")
 	if repo.CurrentBranch(dir) != "feature" {
 		t.Errorf("expected feature, got %s", repo.CurrentBranch(dir))
+	}
+	out, _ := testutil.GitOutput(t, dir, "status", "--short")
+	if out != "?? dirty.txt" {
+		t.Errorf("expected untracked file to be restored, got %q", out)
+	}
+}
+
+func TestSwitchDiscard_RemovesUntrackedChanges(t *testing.T) {
+	dir := testutil.InitRepo(t)
+	testutil.GitMustRun(t, dir, "checkout", "-b", "feature")
+	testutil.GitMustRun(t, dir, "checkout", "main")
+
+	testutil.WriteFile(t, dir, "dirty.txt", "change\n")
+
+	branch.SwitchDiscard(dir, "feature")
+	if repo.CurrentBranch(dir) != "feature" {
+		t.Errorf("expected feature, got %s", repo.CurrentBranch(dir))
+	}
+	if _, err := os.Stat(filepath.Join(dir, "dirty.txt")); !os.IsNotExist(err) {
+		t.Fatalf("expected dirty.txt to be removed, err=%v", err)
+	}
+	out, _ := testutil.GitOutput(t, dir, "status", "--short")
+	if out != "" {
+		t.Errorf("expected clean repo after discard, got %q", out)
+	}
+}
+
+func TestSwitchStash_PopConflict_LeavesTargetAndStashEntry(t *testing.T) {
+	dir := testutil.InitRepo(t)
+
+	testutil.WriteFile(t, dir, "file.txt", "original\n")
+	testutil.GitMustRun(t, dir, "add", "file.txt")
+	testutil.GitMustRun(t, dir, "commit", "-m", "add file")
+
+	testutil.GitMustRun(t, dir, "checkout", "-b", "target")
+	testutil.WriteFile(t, dir, "file.txt", "target change\n")
+	testutil.GitMustRun(t, dir, "add", "file.txt")
+	testutil.GitMustRun(t, dir, "commit", "-m", "target change")
+	testutil.GitMustRun(t, dir, "checkout", "main")
+
+	testutil.WriteFile(t, dir, "file.txt", "local change\n")
+
+	branch.SwitchStash(dir, "target")
+
+	if repo.CurrentBranch(dir) != "target" {
+		t.Fatalf("expected to remain on target after stash conflict, got %s", repo.CurrentBranch(dir))
+	}
+	statusOut, _ := testutil.GitOutput(t, dir, "status", "--short")
+	if strings.TrimSpace(statusOut) == "" {
+		t.Fatal("expected conflict state after stash reapply conflict")
+	}
+	list, _ := testutil.GitOutput(t, dir, "stash", "list")
+	if strings.TrimSpace(list) == "" {
+		t.Fatal("expected stash entry to remain after failed stash pop")
+	}
+}
+
+func TestSwitch_NonInteractiveNonExistentBranch_NoSideEffects(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func(string, string)
+	}{
+		{name: "stash", run: branch.SwitchStash},
+		{name: "discard", run: branch.SwitchDiscard},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := testutil.InitRepo(t)
+			testutil.WriteFile(t, dir, "dirty.txt", "change\n")
+
+			tc.run(dir, "ghost")
+
+			if repo.CurrentBranch(dir) != "main" {
+				t.Fatalf("expected to stay on main, got %s", repo.CurrentBranch(dir))
+			}
+			statusOut, _ := testutil.GitOutput(t, dir, "status", "--short")
+			if statusOut != "?? dirty.txt" {
+				t.Fatalf("expected dirty state to be preserved, got %q", statusOut)
+			}
+			list, _ := testutil.GitOutput(t, dir, "stash", "list")
+			if strings.TrimSpace(list) != "" {
+				t.Fatalf("expected no stash entry when branch is missing, got %q", list)
+			}
+		})
 	}
 }
 
@@ -185,26 +268,28 @@ func TestListAll_NoPanic(t *testing.T) {
 
 // ── stdin injection helper ────────────────────────────────────────────────────
 
-func TestSwitch_DiscardPrompt_Yes(t *testing.T) {
+func TestSwitch_StashPrompt_ChoiceOne(t *testing.T) {
 	dir := testutil.InitRepo(t)
 	testutil.GitMustRun(t, dir, "checkout", "-b", "target")
 	testutil.GitMustRun(t, dir, "checkout", "main")
 
-	// Stage a change so the prompt is triggered.
-	testutil.WriteFile(t, dir, "dirty.txt", "x")
-	testutil.GitMustRun(t, dir, "add", "dirty.txt")
+	testutil.WriteFile(t, dir, "dirty.txt", "x\n")
 
 	orig := ui.StdinReader
-	ui.StdinReader = testutil.NewStringReader("y\n")
+	ui.StdinReader = testutil.NewStringReader("1\n")
 	defer func() { ui.StdinReader = orig }()
 
 	branch.Switch(dir, "target")
 	if repo.CurrentBranch(dir) != "target" {
-		t.Errorf("expected target after accepting discard prompt, got %s", repo.CurrentBranch(dir))
+		t.Errorf("expected target after stash prompt, got %s", repo.CurrentBranch(dir))
+	}
+	out, _ := testutil.GitOutput(t, dir, "status", "--short")
+	if out != "?? dirty.txt" {
+		t.Errorf("expected dirty.txt to be restored after stash prompt, got %q", out)
 	}
 }
 
-func TestSwitch_DiscardPrompt_No(t *testing.T) {
+func TestSwitch_DiscardPrompt_ChoiceTwo(t *testing.T) {
 	dir := testutil.InitRepo(t)
 	testutil.GitMustRun(t, dir, "checkout", "-b", "target")
 	testutil.GitMustRun(t, dir, "checkout", "main")
@@ -213,11 +298,95 @@ func TestSwitch_DiscardPrompt_No(t *testing.T) {
 	testutil.GitMustRun(t, dir, "add", "dirty.txt")
 
 	orig := ui.StdinReader
-	ui.StdinReader = testutil.NewStringReader("n\n")
+	ui.StdinReader = testutil.NewStringReader("2\n")
+	defer func() { ui.StdinReader = orig }()
+
+	branch.Switch(dir, "target")
+	if repo.CurrentBranch(dir) != "target" {
+		t.Errorf("expected to switch after discard prompt, got %s", repo.CurrentBranch(dir))
+	}
+	out, _ := testutil.GitOutput(t, dir, "status", "--short")
+	if out != "" {
+		t.Errorf("expected clean repo after discard prompt, got %q", out)
+	}
+}
+
+func TestSwitch_CancelPrompt_ChoiceThree(t *testing.T) {
+	dir := testutil.InitRepo(t)
+	testutil.GitMustRun(t, dir, "checkout", "-b", "target")
+	testutil.GitMustRun(t, dir, "checkout", "main")
+
+	testutil.WriteFile(t, dir, "dirty.txt", "x")
+	testutil.GitMustRun(t, dir, "add", "dirty.txt")
+
+	orig := ui.StdinReader
+	ui.StdinReader = testutil.NewStringReader("3\n")
 	defer func() { ui.StdinReader = orig }()
 
 	branch.Switch(dir, "target")
 	if repo.CurrentBranch(dir) != "main" {
-		t.Errorf("expected to stay on main after declining prompt, got %s", repo.CurrentBranch(dir))
+		t.Errorf("expected to stay on main after cancel prompt, got %s", repo.CurrentBranch(dir))
+	}
+	out, _ := testutil.GitOutput(t, dir, "status", "--short")
+	if out != "A  dirty.txt" {
+		t.Errorf("expected dirty state to be preserved after cancel, got %q", out)
+	}
+}
+
+func TestSwitch_InvalidPromptInput_Cancels(t *testing.T) {
+	dir := testutil.InitRepo(t)
+	testutil.GitMustRun(t, dir, "checkout", "-b", "target")
+	testutil.GitMustRun(t, dir, "checkout", "main")
+
+	testutil.WriteFile(t, dir, "dirty.txt", "x")
+	testutil.GitMustRun(t, dir, "add", "dirty.txt")
+
+	orig := ui.StdinReader
+	ui.StdinReader = testutil.NewStringReader("wat\n")
+	defer func() { ui.StdinReader = orig }()
+
+	branch.Switch(dir, "target")
+	if repo.CurrentBranch(dir) != "main" {
+		t.Fatalf("expected to stay on main after invalid prompt input, got %s", repo.CurrentBranch(dir))
+	}
+	out, _ := testutil.GitOutput(t, dir, "status", "--short")
+	if out != "A  dirty.txt" {
+		t.Fatalf("expected dirty state to be preserved after invalid input, got %q", out)
+	}
+}
+
+func TestSwitchCmd_MultiRepoCancelOnlyAffectsCurrentRepo(t *testing.T) {
+	dir1 := testutil.InitRepo(t)
+	dir2 := testutil.InitRepo(t)
+
+	for _, dir := range []string{dir1, dir2} {
+		testutil.GitMustRun(t, dir, "checkout", "-b", "target")
+		testutil.GitMustRun(t, dir, "checkout", "main")
+		testutil.WriteFile(t, dir, "dirty.txt", "x\n")
+	}
+
+	c := branch.SwitchCmd()
+	orig := ui.StdinReader
+	ui.StdinReader = testutil.NewStringReader("3\n1\n")
+	defer func() { ui.StdinReader = orig }()
+
+	if err := c.Run("", []string{dir1, dir2}, []string{"target"}); err != nil {
+		t.Fatalf("switch command failed: %v", err)
+	}
+
+	if repo.CurrentBranch(dir1) != "main" {
+		t.Fatalf("expected first repo to stay on main after cancel, got %s", repo.CurrentBranch(dir1))
+	}
+	out1, _ := testutil.GitOutput(t, dir1, "status", "--short")
+	if out1 != "?? dirty.txt" {
+		t.Fatalf("expected first repo dirty state to remain, got %q", out1)
+	}
+
+	if repo.CurrentBranch(dir2) != "target" {
+		t.Fatalf("expected second repo to switch after second prompt, got %s", repo.CurrentBranch(dir2))
+	}
+	out2, _ := testutil.GitOutput(t, dir2, "status", "--short")
+	if out2 != "?? dirty.txt" {
+		t.Fatalf("expected second repo to restore untracked file after stash, got %q", out2)
 	}
 }

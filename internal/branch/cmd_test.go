@@ -15,11 +15,11 @@ func TestSwitchRunValidation(t *testing.T) {
 	if err := c.Run("", []string{}, []string{"bad!branch"}); err == nil {
 		t.Error("expected error for invalid branch name")
 	}
-	if err := c.Run("", []string{}, []string{"-f"}); err == nil {
-		t.Error("expected error: -f requires branch name")
+	if err := c.Run("", []string{}, []string{"-s"}); err == nil {
+		t.Error("expected error: -s requires branch name")
 	}
-	if err := c.Run("", []string{}, []string{"-c"}); err == nil {
-		t.Error("expected error: -c requires branch name")
+	if err := c.Run("", []string{}, []string{"-d"}); err == nil {
+		t.Error("expected error: -d requires branch name")
 	}
 }
 
@@ -30,8 +30,8 @@ func TestSwitchComplete(t *testing.T) {
 	for _, s := range got {
 		flags[s] = true
 	}
-	if !flags["-f"] || !flags["-c"] {
-		t.Errorf("SwitchCmd.Complete([\"-\"]) should include -f and -c, got %v", got)
+	if !flags["-s"] || !flags["-d"] {
+		t.Errorf("SwitchCmd.Complete([\"-\"]) should include -s and -d, got %v", got)
 	}
 }
 
@@ -43,12 +43,15 @@ func TestBranchRunValidation(t *testing.T) {
 	if err := c.Run("", []string{}, []string{"-d"}); err == nil {
 		t.Error("expected error: -d requires branch name")
 	}
+	if err := c.Run("", []string{}, []string{"-n"}); err == nil {
+		t.Error("expected error: -n requires branch name")
+	}
 }
 
 func TestBranchComplete(t *testing.T) {
 	c := branch.BranchCmd()
 	got := c.Complete([]string{"-"})
-	want := map[string]bool{"-a": true, "--find": true, "-d": true, "-D": true, "-m": true}
+	want := map[string]bool{"-a": true, "--find": true, "-d": true, "-D": true, "-m": true, "-n": true}
 	for _, s := range got {
 		delete(want, s)
 	}

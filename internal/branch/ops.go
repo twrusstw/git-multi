@@ -11,6 +11,14 @@ import (
 	"gitmulti/internal/util"
 )
 
+type switchMode int
+
+const (
+	switchModePrompt switchMode = iota
+	switchModeStash
+	switchModeDiscard
+)
+
 // isModifiedStatus reports whether a porcelain XY status code represents a
 // relevant change (added, modified, deleted, renamed or copied in either the
 // index or the worktree).
@@ -57,6 +65,18 @@ func parsePorcelainZ(data []byte) []string {
 }
 
 func Switch(dir, branch string) {
+	switchWithMode(dir, branch, switchModePrompt)
+}
+
+func SwitchStash(dir, branch string) {
+	switchWithMode(dir, branch, switchModeStash)
+}
+
+func SwitchDiscard(dir, branch string) {
+	switchWithMode(dir, branch, switchModeDiscard)
+}
+
+func switchWithMode(dir, branch string, mode switchMode) {
 	label := repo.Label(dir)
 	cur := repo.CurrentBranch(dir)
 	if cur == branch {
@@ -64,48 +84,104 @@ func Switch(dir, branch string) {
 		return
 	}
 
-	changedFiles, _ := gitutil.Git(dir, "diff-index", "--name-only", "HEAD", "--")
-	if changedFiles != "" {
-		fmt.Printf("%s: Uncommitted changes would be overwritten:\n", ui.Cyan(label))
-		fmt.Print(changedFiles)
-		if !ui.PromptYN(fmt.Sprintf("Discard all changes and switch to branch %s?", branch)) {
-			return
-		}
-		gitutil.GitRun(dir, "reset", "--hard", "HEAD")
-	}
-
 	// Only consult local refs here: git checkout can only DWIM-create a
 	// tracking branch from a cached remote-tracking ref, so asking the
 	// network via ls-remote adds no capability — just serial latency.
 	// Run `gitmulti fetch` first if the remote-tracking ref is stale.
-	if repo.BranchExistsLocal(dir, branch) || repo.BranchExistsRemoteLocal(dir, branch) {
-		fmt.Printf("%s: Switching to branch %s.\n", ui.Cyan(label), branch)
-		gitutil.GitRun(dir, "checkout", branch)
-	} else {
+	if !repo.BranchExistsLocal(dir, branch) && !repo.BranchExistsRemoteLocal(dir, branch) {
 		fmt.Printf("%s: Branch %s not found locally (fetch first?).\n", ui.Cyan(label), branch)
+		return
 	}
-}
 
-func switchForce(dir, branch string, quiet bool) {
-	label := repo.Label(dir)
-	cur := repo.CurrentBranch(dir)
-	if cur == branch {
-		if !quiet {
-			fmt.Printf("%s: Already on branch %s.\n", ui.Cyan(label), branch)
+	changedFiles, _ := gitutil.Git(dir, "status", "--short")
+	if changedFiles != "" {
+		fmt.Printf("%s: Uncommitted changes detected:\n", ui.Cyan(label))
+		fmt.Print(changedFiles)
+		if !strings.HasSuffix(changedFiles, "\n") {
+			fmt.Println()
+		}
+		fmt.Println()
+		if mode == switchModePrompt {
+			mode = promptSwitchMode(branch)
+		}
+		switch mode {
+		case switchModeStash:
+			stashAndSwitch(dir, label, branch)
+		case switchModeDiscard:
+			discardAndSwitch(dir, label, branch)
+		default:
+			fmt.Printf("%s: Cancelled.\n", ui.Cyan(label))
 		}
 		return
 	}
-	// Local refs only — see Switch() comment for rationale.
-	if repo.BranchExistsLocal(dir, branch) || repo.BranchExistsRemoteLocal(dir, branch) {
-		if !quiet {
-			fmt.Printf("%s: Switching to branch %s.\n", ui.Cyan(label), branch)
-		}
-		gitutil.GitRun(dir, "checkout", "-f", branch)
+
+	fmt.Printf("%s: Switching to branch %s.\n", ui.Cyan(label), branch)
+	gitutil.GitRun(dir, "checkout", branch)
+}
+
+func promptSwitchMode(branch string) switchMode {
+	choice := ui.PromptMenu([]string{
+		fmt.Sprintf("stash and reapply before switching to %s", branch),
+		fmt.Sprintf("discard all changes and switch to %s", branch),
+		"cancel",
+	})
+	switch choice {
+	case 1:
+		return switchModeStash
+	case 2:
+		return switchModeDiscard
+	default:
+		return switchModePrompt
 	}
 }
 
-func SwitchForce(dir, branch string)      { switchForce(dir, branch, false) }
-func SwitchForceQuiet(dir, branch string) { switchForce(dir, branch, true) }
+func stashAndSwitch(dir, label, branch string) {
+	fmt.Printf("%s: Stashing changes before switching to branch %s.\n", ui.Cyan(label), branch)
+	if _, err := gitutil.GitCombined(dir, "stash", "push", "-u"); err != nil {
+		ui.Errorf("%s: stash failed\n", ui.Cyan(label))
+		return
+	}
+
+	fmt.Printf("%s: Switching to branch %s.\n", ui.Cyan(label), branch)
+	if err := gitutil.GitRun(dir, "checkout", branch); err != nil {
+		if _, popErr := gitutil.GitCombined(dir, "stash", "pop"); popErr != nil {
+			ui.Errorf("%s: checkout failed; stash restore also failed\n", ui.Cyan(label))
+		} else {
+			ui.Errorf("%s: checkout failed; restored stashed changes on original branch\n", ui.Cyan(label))
+		}
+		return
+	}
+
+	if _, err := gitutil.Git(dir, "stash", "pop"); err != nil {
+		printSwitchReapplyConflict(label, dir)
+	}
+}
+
+func discardAndSwitch(dir, label, branch string) {
+	fmt.Printf("%s: Discarding changes before switching to branch %s.\n", ui.Cyan(label), branch)
+	if _, err := gitutil.GitCombined(dir, "reset", "--hard", "HEAD"); err != nil {
+		ui.Errorf("%s: reset --hard failed\n", ui.Cyan(label))
+		return
+	}
+	if _, err := gitutil.GitCombined(dir, "clean", "-fd"); err != nil {
+		ui.Errorf("%s: clean -fd failed\n", ui.Cyan(label))
+		return
+	}
+
+	fmt.Printf("%s: Switching to branch %s.\n", ui.Cyan(label), branch)
+	gitutil.GitRun(dir, "checkout", branch)
+}
+
+func printSwitchReapplyConflict(label, dir string) {
+	statusOut, _ := gitutil.Git(dir, "status", "--porcelain")
+	ui.Errorf("%s: stash reapply conflict\n", ui.Cyan(label))
+	for _, line := range strings.Split(statusOut, "\n") {
+		if len(line) >= 2 && (line[0] == 'U' || line[1] == 'U' || (line[0] == 'A' && line[1] == 'A')) {
+			ui.Errorf("  %s\n", strings.TrimSpace(line[3:]))
+		}
+	}
+	ui.Errorf("  → resolve manually, then: git add <file> && git stash drop\n")
+}
 
 func Find(dir, keyword string) {
 	label := repo.Label(dir)

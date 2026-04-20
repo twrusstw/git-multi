@@ -25,9 +25,9 @@ gitmulti <subcommand> [args] [-C directory]
 | `pull [--rebase] [branch]` | Pull (ff-only → stash+pull → group conflict menu) |
 | `push [branch]` | Push; auto-sets upstream for new branches |
 | `fetch` | Fetch then show ahead/behind/dirty table |
-| `switch <branch>` | Switch branch (prompts on uncommitted changes) |
-| `switch -f <branch>` | Force switch (no prompt) |
-| `switch -c <branch>` | Create new branch in repos with changes |
+| `switch <branch>` | Switch branch (stash/discard/cancel on dirty repos) |
+| `switch -s <branch>` | Stash and reapply changes before switch |
+| `switch -d <branch>` | Discard changes before switch |
 | `branch` | Show ahead/behind/dirty status table |
 | `branch -a [keyword]` | List all unique branches (optional filter) |
 | `branch -ag [keyword]` | List branches grouped by repository |
@@ -35,6 +35,7 @@ gitmulti <subcommand> [args] [-C directory]
 | `branch -d <name> [--remote]` | Delete branch (confirm per repo) |
 | `branch -D <name> [--remote]` | Force-delete branch (warns if unmerged) |
 | `branch -m <old> <new>` | Rename branch (offers remote sync) |
+| `branch -n <name>` | Create new branch in repos with changes |
 | `status` | Show file-level changes for repos with changes |
 | `stash` | Stash changes in all dirty repos |
 | `stash pop` | Pop stash (shows conflicts with resolution hint) |
@@ -70,7 +71,7 @@ gitmulti branch -ag
 gitmulti pull main -C my-service
 
 # Create a new branch in repos with changes
-gitmulti switch -c feat/my-feature
+gitmulti branch -n feat/my-feature
 ```
 
 ## Tab Completion
