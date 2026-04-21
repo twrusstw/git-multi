@@ -1,0 +1,5 @@
+#compdef gitmulti
+
+local -a candidates
+candidates=( ${(f)"$(gitmulti __complete "${words[@]:1}" 2>/dev/null)"} )
+compadd -a candidates
