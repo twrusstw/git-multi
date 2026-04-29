@@ -220,3 +220,53 @@ func branchArrow(dir string) string {
 	}
 	return strings.TrimSpace(upstream) + " → " + local
 }
+
+// colorDiffStatLine applies green/red ANSI color to the +/- bar in a
+// single `git diff --stat` output line. Summary lines (no `|`) are returned unchanged.
+func colorDiffStatLine(line string) string {
+	idx := strings.LastIndex(line, "|")
+	if idx < 0 {
+		return line
+	}
+	after := line[idx+1:]
+	barStart := strings.IndexAny(after, "+-")
+	if barStart < 0 {
+		return line
+	}
+	prefix := line[:idx+1] + after[:barStart]
+	bar := after[barStart:]
+	plusEnd := strings.IndexByte(bar, '-')
+	switch {
+	case plusEnd < 0:
+		return prefix + ui.Green(bar)
+	case plusEnd == 0:
+		return prefix + ui.Red(bar)
+	default:
+		return prefix + ui.Green(bar[:plusEnd]) + ui.Red(bar[plusEnd:])
+	}
+}
+
+// diffStat returns a colored, indented `git diff --stat` block comparing
+// oldHead to the current HEAD. Returns "" when oldHead is empty or HEAD
+// hasn't changed (already up to date).
+func diffStat(dir, oldHead string, width int) string {
+	if oldHead == "" {
+		return ""
+	}
+	newHead, _ := gitutil.Git(dir, "rev-parse", "HEAD")
+	if strings.TrimSpace(newHead) == oldHead {
+		return ""
+	}
+	out, _ := gitutil.Git(dir, "diff", "--stat",
+		fmt.Sprintf("--stat-width=%d", width),
+		oldHead+"..HEAD")
+	out = strings.TrimRight(out, "\n")
+	if out == "" {
+		return ""
+	}
+	var lines []string
+	for _, line := range strings.Split(out, "\n") {
+		lines = append(lines, "  "+colorDiffStatLine(line))
+	}
+	return strings.Join(lines, "\n")
+}
