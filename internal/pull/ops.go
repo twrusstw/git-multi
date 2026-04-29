@@ -46,24 +46,29 @@ func All(dirs []string, branchName string) {
 // nothing until it finishes. If this becomes a UX problem, serialise the
 // loop instead of switching back to GitRun (which reintroduces interleaving).
 func Rebase(dirs []string, branchName string) {
+	width := termWidth()
 	util.ParallelDo(dirs, 0, func(dir string) {
 		label := repo.Label(dir)
 		branch := effectiveBranch(dir, branchName)
+
+		oldHead, _ := gitutil.Git(dir, "rev-parse", "HEAD")
+		oldHead = strings.TrimSpace(oldHead)
+
 		args := []string{"pull", "--rebase"}
 		if branch != "" {
 			args = append(args, "origin", branch)
 		}
-		out, err := gitutil.GitCombined(dir, args...)
+		_, err := gitutil.GitCombined(dir, args...)
 		ui.LockedPrint(func() {
 			if err != nil {
 				ui.Errorf("%s: pull --rebase failed\n", ui.Cyan(label))
-			} else {
-				fmt.Printf("%s: pull --rebase OK\n", ui.Cyan(label))
+				return
 			}
-			if out != "" {
-				for _, line := range strings.Split(out, "\n") {
-					fmt.Printf("  %s\n", line)
-				}
+			arrow := branchArrow(dir)
+			fmt.Printf("%s: pull --rebase OK  %s\n", ui.Cyan(label), arrow)
+			stat := diffStat(dir, oldHead, width)
+			if stat != "" {
+				fmt.Println(stat)
 			}
 		})
 	})
