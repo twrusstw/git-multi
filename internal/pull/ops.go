@@ -2,7 +2,10 @@ package pull
 
 import (
 	"fmt"
+	"os"
 	"strings"
+	"syscall"
+	"unsafe"
 
 	"gitmulti/internal/gitutil"
 	"gitmulti/internal/repo"
@@ -189,4 +192,31 @@ func conflictFiles(dir string) []string {
 		}
 	}
 	return files
+}
+
+// termWidth returns the terminal column count, or 80 when stdout is not a terminal.
+func termWidth() int {
+	type winsize struct{ Row, Col, Xpixel, Ypixel uint16 }
+	ws := &winsize{}
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL,
+		uintptr(os.Stdout.Fd()),
+		syscall.TIOCGWINSZ,
+		uintptr(unsafe.Pointer(ws)),
+	)
+	if errno != 0 || ws.Col == 0 {
+		return 80
+	}
+	return int(ws.Col)
+}
+
+// branchArrow returns "origin/main → main" using cached remote-tracking info.
+// Falls back to "→ <local>" when no upstream is configured.
+func branchArrow(dir string) string {
+	local, _ := gitutil.Git(dir, "rev-parse", "--abbrev-ref", "HEAD")
+	local = strings.TrimSpace(local)
+	upstream, err := gitutil.Git(dir, "rev-parse", "--abbrev-ref", "@{u}")
+	if err != nil || strings.TrimSpace(upstream) == "" {
+		return "→ " + local
+	}
+	return strings.TrimSpace(upstream) + " → " + local
 }
