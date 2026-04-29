@@ -72,10 +72,25 @@ func Rebase(dirs []string, branchName string) {
 func cascade(dir, branchName string) pullState {
 	label := repo.Label(dir)
 	branch := effectiveBranch(dir, branchName)
+	width := termWidth()
 
 	args := []string{"pull", "--ff-only"}
 	if branch != "" {
 		args = append(args, "origin", branch)
+	}
+
+	oldHead, _ := gitutil.Git(dir, "rev-parse", "HEAD")
+	oldHead = strings.TrimSpace(oldHead)
+
+	sayPulled := func() {
+		arrow := branchArrow(dir)
+		stat := diffStat(dir, oldHead, width)
+		ui.LockedPrint(func() {
+			fmt.Printf("%s: pulled  %s\n", ui.Cyan(label), arrow)
+			if stat != "" {
+				fmt.Println(stat)
+			}
+		})
 	}
 
 	say := func(msg string) {
@@ -84,7 +99,7 @@ func cascade(dir, branchName string) pullState {
 
 	// Phase 1: ff-only
 	if gitutil.GitOK(dir, args...) {
-		say("pulled (ff-only)")
+		sayPulled()
 		return pullState{dir: dir, label: label, status: "ok"}
 	}
 
@@ -97,7 +112,7 @@ func cascade(dir, branchName string) pullState {
 	if gitutil.GitOK(dir, args...) {
 		if stashed {
 			if gitutil.GitOK(dir, "stash", "pop") {
-				say("pulled (stash+ff-only+pop)")
+				sayPulled()
 				return pullState{dir: dir, label: label, status: "ok"}
 			}
 			// stash pop conflict
@@ -105,7 +120,7 @@ func cascade(dir, branchName string) pullState {
 			say("conflict after pull")
 			return pullState{dir: dir, label: label, status: "conflict", conflictFiles: files}
 		}
-		say("pulled (ff-only after stash)")
+		sayPulled()
 		return pullState{dir: dir, label: label, status: "ok"}
 	}
 	// Still can't pull — unstash and mark conflict
