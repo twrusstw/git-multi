@@ -138,30 +138,73 @@ func readOriginURL(dir string) string {
 	return ""
 }
 
-func printStatus(s repoStatus, printHeader bool) {
-	status := fmt.Sprintf("(⇣%s ⇡%s ?%d !%d +%d)", s.pullCount, s.pushCount, s.untracked, s.unstaged, s.staged)
-	if printHeader {
-		fmt.Printf("\033[1m%-20s %-30s %-20s %-5s\033[0m\n", "Group", "Repository", "Branch", "Status")
+type colWidths struct {
+	group, repo, branch int
+}
+
+func computeWidths(rows []repoStatus) colWidths {
+	w := colWidths{
+		group:  len("Group"),
+		repo:   len("Repository"),
+		branch: len("Branch"),
 	}
+	for _, s := range rows {
+		if n := len(s.groupName); n > w.group {
+			w.group = n
+		}
+		if n := len(s.label); n > w.repo {
+			w.repo = n
+		}
+		if n := len(s.branchName); n > w.branch {
+			w.branch = n
+		}
+	}
+	return w
+}
+
+func printHeaderRow(w colWidths) {
+	fmt.Printf("\033[1m%s %s %s %s\033[0m\n",
+		ui.PadRight("Group", w.group),
+		ui.PadRight("Repository", w.repo),
+		ui.PadRight("Branch", w.branch),
+		"Status")
+}
+
+func printStatusRow(s repoStatus, w colWidths) {
+	status := fmt.Sprintf("(⇣%s ⇡%s ?%d !%d +%d)", s.pullCount, s.pushCount, s.untracked, s.unstaged, s.staged)
 	dirty := s.untracked > 0 || s.unstaged > 0 || s.staged > 0
+	group := ui.PadRight(ui.Cyan(s.groupName), w.group)
 	if dirty {
-		fmt.Printf("%s %-30s %-20s \033[42;30m%s\033[0m\n",
-			ui.PadRight(ui.Cyan(s.groupName), 20), s.label, s.branchName, status)
+		fmt.Printf("%s %s %s \033[42;30m%s\033[0m\n",
+			group,
+			ui.PadRight(s.label, w.repo),
+			ui.PadRight(s.branchName, w.branch),
+			status)
 	} else {
-		fmt.Printf("%s \033[33m%-30s\033[0m %-20s %s\n",
-			ui.PadRight(ui.Cyan(s.groupName), 20), s.label, s.branchName, status)
+		fmt.Printf("%s %s %s %s\n",
+			group,
+			ui.PadRight("\033[33m"+s.label+"\033[0m", w.repo),
+			ui.PadRight(s.branchName, w.branch),
+			status)
 	}
 }
 
 func ShowCurrentAll(dirs []string) {
 	results := util.ParallelMap(dirs, 0, collectStatus)
-	for i, s := range results {
-		printStatus(s, i == 0)
+	w := computeWidths(results)
+	printHeaderRow(w)
+	for _, s := range results {
+		printStatusRow(s, w)
 	}
 }
 
 func ShowCurrent(dir string, printHeader bool) {
-	printStatus(collectStatus(dir), printHeader)
+	s := collectStatus(dir)
+	w := computeWidths([]repoStatus{s})
+	if printHeader {
+		printHeaderRow(w)
+	}
+	printStatusRow(s, w)
 }
 
 // extractOwner pulls the owner/org name from a git remote URL.

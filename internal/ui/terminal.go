@@ -52,9 +52,14 @@ func Bold(s string) string  { return "\033[1m" + s + "\033[0m" }
 
 var ansiStrip = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
+// VisibleWidth returns the visible character count of s, excluding ANSI escapes.
+func VisibleWidth(s string) int {
+	return len(ansiStrip.ReplaceAllString(s, ""))
+}
+
 // PadRight pads s to at least width visible characters, ignoring ANSI escape sequences.
 func PadRight(s string, width int) string {
-	visible := len(ansiStrip.ReplaceAllString(s, ""))
+	visible := VisibleWidth(s)
 	if visible >= width {
 		return s
 	}

@@ -51,6 +51,13 @@ func Rebase(dirs []string, branchName string) {
 		label := repo.Label(dir)
 		branch := effectiveBranch(dir, branchName)
 
+		if branch != "" && !hasRemoteBranch(dir, branch) {
+			ui.LockedPrint(func() {
+				fmt.Printf("%s: no upstream, skipped\n", ui.Cyan(label))
+			})
+			return
+		}
+
 		oldHead, _ := gitutil.Git(dir, "rev-parse", "HEAD")
 		oldHead = strings.TrimSpace(oldHead)
 
@@ -100,6 +107,13 @@ func cascade(dir, branchName string) pullState {
 
 	say := func(msg string) {
 		ui.LockedPrint(func() { fmt.Printf("%s: %s\n", ui.Cyan(label), msg) })
+	}
+
+	// Skip when the branch has no remote counterpart — local-only branches
+	// would otherwise fail `pull origin <branch>` and be misreported as conflicts.
+	if branch != "" && !hasRemoteBranch(dir, branch) {
+		say("no upstream, skipped")
+		return pullState{dir: dir, label: label, status: "ok"}
 	}
 
 	// Phase 1: ff-only
@@ -192,6 +206,12 @@ func resolveConflicts(conflicts []pullState, branchName string) {
 	}
 }
 
+// hasRemoteBranch reports whether refs/remotes/origin/<branch> exists locally.
+// This is a fetch-free check; run a fetch beforehand if up-to-date data matters.
+func hasRemoteBranch(dir, branch string) bool {
+	return gitutil.GitOK(dir, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+branch)
+}
+
 func effectiveBranch(dir, branchName string) string {
 	if branchName != "" {
 		return branchName
@@ -277,8 +297,8 @@ func diffStat(dir, oldHead string, width int) string {
 	if strings.TrimSpace(newHead) == oldHead {
 		return ""
 	}
-	out, _ := gitutil.Git(dir, "diff", "--stat",
-		fmt.Sprintf("--stat-width=%d", width),
+	out, _ := gitutil.Git(dir, "-c", "core.quotePath=false", "diff", "--stat",
+		fmt.Sprintf("--stat-width=%d", width-2),
 		oldHead+"..HEAD")
 	out = strings.TrimRight(out, "\n")
 	if out == "" {
