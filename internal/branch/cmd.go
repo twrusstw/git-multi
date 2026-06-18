@@ -113,9 +113,10 @@ func branchRun(root string, repos []string, args []string) error {
 		if len(args) < 2 {
 			return fmt.Errorf("branch --find requires a keyword")
 		}
-		for _, r := range repos {
-			Find(r, args[1])
+		if err := validate.Keyword(args[1]); err != nil {
+			return err
 		}
+		FindAll(repos, args[1])
 	case "-d":
 		if len(args) < 2 {
 			return fmt.Errorf("branch -d requires a branch name")

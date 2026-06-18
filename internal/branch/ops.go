@@ -212,6 +212,138 @@ func Find(dir, keyword string) {
 	})
 }
 
+type findResult struct {
+	label    string
+	exact    bool
+	upstream string
+	similar  []string
+}
+
+func FindAll(dirs []string, keyword string) {
+	results := util.ParallelMap(dirs, 0, func(dir string) findResult {
+		return findInRepo(dir, keyword)
+	})
+	printFindResults(keyword, results)
+}
+
+func findInRepo(dir, keyword string) findResult {
+	result := findResult{label: repo.Label(dir)}
+	if repo.BranchExistsLocal(dir, keyword) {
+		result.exact = true
+		result.upstream = branchUpstream(dir, keyword)
+		return result
+	}
+	result.similar = similarBranches(dir, keyword)
+	return result
+}
+
+func branchUpstream(dir, branchName string) string {
+	out, err := gitutil.Git(dir, "rev-parse", "--abbrev-ref", branchName+"@{upstream}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+func similarBranches(dir, keyword string) []string {
+	out, err := gitutil.Git(dir, "branch", "--all", "--list", "*"+keyword+"*")
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(out, "\n") {
+		if name := util.NormaliseBranchName(line); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func printFindResults(keyword string, results []findResult) {
+	var ready, localOnly, similar []findResult
+	noMatch := 0
+	for _, r := range results {
+		switch {
+		case r.exact && r.upstream != "":
+			ready = append(ready, r)
+		case r.exact:
+			localOnly = append(localOnly, r)
+		case len(r.similar) > 0:
+			similar = append(similar, r)
+		default:
+			noMatch++
+		}
+	}
+
+	fmt.Printf("Find branch: %s\n\n", keyword)
+	labelW := findLabelWidth(results)
+	printFindExactGroup("Ready to use", ready, labelW, func(r findResult) string {
+		return r.upstream
+	})
+	printFindExactGroup("Local only", localOnly, labelW, func(findResult) string {
+		return "no upstream"
+	})
+	printFindSimilarGroup(similar)
+
+	exact := len(ready) + len(localOnly)
+	if len(ready) > 0 || len(localOnly) > 0 || len(similar) > 0 {
+		fmt.Println()
+	}
+	fmt.Printf(
+		"Summary: exact %d, with upstream %d, no upstream %d, similar %d, no match %d\n",
+		exact,
+		len(ready),
+		len(localOnly),
+		len(similar),
+		noMatch,
+	)
+}
+
+func findLabelWidth(results []findResult) int {
+	width := 0
+	for _, r := range results {
+		if len(r.label) > width {
+			width = len(r.label)
+		}
+	}
+	return width
+}
+
+func printFindExactGroup(title string, results []findResult, labelW int, detail func(findResult) string) {
+	if len(results) == 0 {
+		return
+	}
+	fmt.Println(title)
+	for _, r := range results {
+		fmt.Printf("  %-*s  %s\n", labelW, r.label, detail(r))
+	}
+	fmt.Println()
+}
+
+func printFindSimilarGroup(results []findResult) {
+	if len(results) == 0 {
+		return
+	}
+	fmt.Println("Similar matches")
+	for _, r := range results {
+		fmt.Printf("  %s\n", r.label)
+		names, more := truncateSimilarBranches(r.similar, 3)
+		for _, name := range names {
+			fmt.Printf("    %s\n", name)
+		}
+		if more > 0 {
+			fmt.Printf("    ... +%d more\n", more)
+		}
+	}
+}
+
+func truncateSimilarBranches(names []string, limit int) ([]string, int) {
+	if len(names) <= limit {
+		return names, 0
+	}
+	return names[:limit], len(names) - limit
+}
+
 func ListAllNames(root, keyword string) []string {
 	args := []string{"branch", "--all"}
 	if keyword != "" {

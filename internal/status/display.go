@@ -228,7 +228,7 @@ func extractOwner(remoteURL string) string {
 
 func ShowStatus(dir string) {
 	label := repo.Label(dir)
-	out, _ := gitutil.Git(dir, "status")
+	out, _ := gitutil.Git(dir, "-c", "core.quotePath=false", "status")
 	ui.LockedPrint(func() {
 		if strings.Contains(out, "nothing to commit") {
 			fmt.Printf("%s: No changes to show.\n", ui.Cyan(label))
@@ -247,7 +247,7 @@ func DiscardChangesMulti(repos []string) {
 	}
 
 	collected := util.ParallelMap(repos, 0, func(r string) dirtyRepo {
-		out, _ := gitutil.Git(r, "status", "--short")
+		out, _ := gitutil.Git(r, "-c", "core.quotePath=false", "status", "--short")
 		if strings.TrimSpace(out) == "" {
 			return dirtyRepo{}
 		}

@@ -46,6 +46,12 @@ func TestBranchRunValidation(t *testing.T) {
 	if err := c.Run("", []string{}, []string{"-n"}); err == nil {
 		t.Error("expected error: -n requires branch name")
 	}
+	if err := c.Run("", []string{}, []string{"--find"}); err == nil {
+		t.Error("expected error: --find requires keyword")
+	}
+	if err := c.Run("", []string{}, []string{"--find", "bad!keyword"}); err == nil {
+		t.Error("expected error: --find rejects invalid keyword")
+	}
 }
 
 func TestBranchComplete(t *testing.T) {

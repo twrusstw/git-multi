@@ -272,6 +272,108 @@ func TestListAll_NoPanic(t *testing.T) {
 	branch.ListAll(root, "")
 }
 
+func initNamedRepo(t *testing.T, root, name string) string {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir repo %s: %v", name, err)
+	}
+	testutil.GitMustRun(t, dir, "init", "-b", "main")
+	testutil.GitMustRun(t, dir, "config", "user.email", "test@test.com")
+	testutil.GitMustRun(t, dir, "config", "user.name", "Test")
+	testutil.WriteFile(t, dir, "README.md", "init")
+	testutil.GitMustRun(t, dir, "add", ".")
+	testutil.GitMustRun(t, dir, "commit", "-m", "init")
+	return dir
+}
+
+func TestFindAll_GroupsExactBranchesByUpstream(t *testing.T) {
+	root := t.TempDir()
+	source := initNamedRepo(t, root, "source")
+	ready := filepath.Join(root, "ready-repo")
+	testutil.GitMustRun(t, root, "clone", source, ready)
+	testutil.GitMustRun(t, ready, "config", "user.email", "test@test.com")
+	testutil.GitMustRun(t, ready, "config", "user.name", "Test")
+	testutil.GitMustRun(t, ready, "checkout", "-b", "feature/ready")
+	testutil.GitMustRun(t, ready, "push", "-u", "origin", "feature/ready")
+	testutil.GitMustRun(t, ready, "checkout", "main")
+
+	localOnly := initNamedRepo(t, root, "local-only")
+	testutil.GitMustRun(t, localOnly, "checkout", "-b", "feature/ready")
+	testutil.GitMustRun(t, localOnly, "checkout", "main")
+
+	out := testutil.CaptureStdout(t, func() {
+		branch.FindAll([]string{ready, localOnly}, "feature/ready")
+	})
+
+	for _, want := range []string{
+		"Find branch: feature/ready",
+		"Ready to use",
+		"ready-repo",
+		"origin/feature/ready",
+		"Local only",
+		"local-only",
+		"no upstream",
+		"Summary: exact 2, with upstream 1, no upstream 1, similar 0, no match 0",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestFindAll_ShowsSimilarAndHidesNoMatchRepos(t *testing.T) {
+	root := t.TempDir()
+	similar := initNamedRepo(t, root, "similar-repo")
+	testutil.GitMustRun(t, similar, "checkout", "-b", "feature/ready-fix")
+	testutil.GitMustRun(t, similar, "checkout", "main")
+	noMatch := initNamedRepo(t, root, "no-match")
+
+	out := testutil.CaptureStdout(t, func() {
+		branch.FindAll([]string{similar, noMatch}, "feature/ready")
+	})
+
+	for _, want := range []string{
+		"Similar matches",
+		"similar-repo",
+		"feature/ready-fix",
+		"Summary: exact 0, with upstream 0, no upstream 0, similar 1, no match 1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "no-match") {
+		t.Fatalf("expected no-match repo to be hidden from main output, got:\n%s", out)
+	}
+}
+
+func TestFindAll_TruncatesSimilarMatches(t *testing.T) {
+	root := t.TempDir()
+	dir := initNamedRepo(t, root, "many-similar")
+	for _, name := range []string{
+		"feature/many-a",
+		"feature/many-b",
+		"feature/many-c",
+		"feature/many-d",
+		"feature/many-e",
+	} {
+		testutil.GitMustRun(t, dir, "checkout", "-b", name)
+		testutil.GitMustRun(t, dir, "checkout", "main")
+	}
+
+	out := testutil.CaptureStdout(t, func() {
+		branch.FindAll([]string{dir}, "feature/many")
+	})
+
+	if !strings.Contains(out, "... +2 more") {
+		t.Fatalf("expected truncated similar matches, got:\n%s", out)
+	}
+	if strings.Contains(out, "feature/many-d") || strings.Contains(out, "feature/many-e") {
+		t.Fatalf("expected later similar matches to be hidden, got:\n%s", out)
+	}
+}
+
 // ── stdin injection helper ────────────────────────────────────────────────────
 
 func TestSwitch_StashPrompt_ChoiceOne(t *testing.T) {

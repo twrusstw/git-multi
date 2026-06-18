@@ -2,6 +2,8 @@ package testutil
 
 import (
 	"bufio"
+	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,6 +88,30 @@ func GitMustRun(t *testing.T, dir string, args ...string) {
 // NewStringReader returns a *bufio.Reader backed by s, for injecting stdin in tests.
 func NewStringReader(s string) *bufio.Reader {
 	return bufio.NewReader(strings.NewReader(s))
+}
+
+// CaptureStdout runs fn and returns everything it writes to stdout.
+func CaptureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdout: %v", err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = orig }()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stdout writer: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("read captured stdout: %v", err)
+	}
+	return buf.String()
 }
 
 // GitOutput runs a git command in dir and returns trimmed stdout.
